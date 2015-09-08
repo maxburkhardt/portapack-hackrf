@@ -41,8 +41,8 @@ public:
 
 private:
 	Text portapack {
-		{ 0, 0, 9 * 8, 1 * 16 },
-		"PortaPack",
+		{ 0, 0, 15 * 8, 1 * 16 },
+		"Max's PortaPack",
 	};
 };
 
