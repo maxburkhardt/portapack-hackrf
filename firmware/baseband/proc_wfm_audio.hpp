@@ -33,12 +33,15 @@
 
 class WidebandFMAudio : public BasebandProcessor {
 public:
+	WidebandFMAudio() {
+		decimator.set_decimation_factor(ChannelDecimator::DecimationFactor::By4);
+	}
+
 	void execute(buffer_c8_t buffer) override;
 
 private:
-	ChannelDecimator decimator { ChannelDecimator::DecimationFactor::By4 };
+	ChannelDecimator decimator;
 
-	//dsp::decimate::FIRAndDecimateBy2Complex<64> channel_filter { taps_64_lp_031_070_tfilter };
 	dsp::demodulate::FM demod { 768000, 75000 };
 	dsp::decimate::DecimateBy2CIC4Real audio_dec_1;
 	dsp::decimate::DecimateBy2CIC4Real audio_dec_2;

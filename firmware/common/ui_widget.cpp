@@ -200,7 +200,7 @@ void Widget::hidden(bool hide) {
 }
 
 void Widget::focus() {
-	context().focus_manager.set_focus_widget(this);
+	context().focus_manager().set_focus_widget(this);
 }
 
 void Widget::on_focus() {
@@ -208,7 +208,7 @@ void Widget::on_focus() {
 }
 
 void Widget::blur() {
-	context().focus_manager.set_focus_widget(nullptr);
+	context().focus_manager().set_focus_widget(nullptr);
 }
 
 void Widget::on_blur() {
@@ -220,7 +220,7 @@ bool Widget::focusable() const {
 }
 
 bool Widget::has_focus() {
-	return (context().focus_manager.focus_widget() == this);
+	return (context().focus_manager().focus_widget() == this);
 }
 
 Widget* Widget::last_child_focus() const {
@@ -304,10 +304,12 @@ void View::paint(Painter& painter) {
 }
 
 void View::add_child(Widget* const widget) {
-	if( widget->parent() == nullptr ) {
-		widget->set_parent(this);
-		children_.push_back(widget);
-		widget->set_dirty();
+	if( widget ) {
+		if( widget->parent() == nullptr ) {
+			widget->set_parent(this);
+			children_.push_back(widget);
+			widget->set_dirty();
+		}
 	}
 }
 
@@ -318,11 +320,13 @@ void View::add_children(const std::vector<Widget*>& children) {
 }
 
 void View::remove_child(Widget* const widget) {
-	children_.erase(std::remove(children_.begin(), children_.end(), widget), children_.end());
-	dirty_screen_rect += widget->screen_rect();
-	widget->set_parent(nullptr);
-	if( dirty_screen_rect ) {
-		set_dirty();
+	if( widget ) {
+		children_.erase(std::remove(children_.begin(), children_.end(), widget), children_.end());
+		dirty_screen_rect += widget->screen_rect();
+		widget->set_parent(nullptr);
+		if( dirty_screen_rect ) {
+			set_dirty();
+		}
 	}
 }
 

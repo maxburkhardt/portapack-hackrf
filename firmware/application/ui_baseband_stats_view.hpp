@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Jared Boone, ShareBrained Technology, Inc.
+ * Copyright (C) 2015 Jared Boone, ShareBrained Technology, Inc.
  *
  * This file is part of PortaPack.
  *
@@ -19,26 +19,30 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#include "access_code_correlator.hpp"
+#ifndef __UI_BASEBAND_STATS_VIEW_H__
+#define __UI_BASEBAND_STATS_VIEW_H__
 
-void AccessCodeCorrelator::configure(
-	const uint32_t new_code,
-	const size_t new_code_length,
-	const size_t new_maximum_hamming_distance
-) {
-	if( new_code_length <= 32 ) {
-		code = new_code;
-		mask = mask_value(new_code_length);
-		maximum_hamming_distance = new_maximum_hamming_distance;
-	}
-}
+#include "ui_widget.hpp"
+#include "message.hpp"
 
-bool AccessCodeCorrelator::execute(
-	const uint_fast8_t in
-) {
-	history = (history << 1) | (in & 1);
-	const auto delta_bits = (history ^ code) & mask;
-	//const size_t count = __builtin_popcountll(delta_bits);
-	const size_t count = __builtin_popcountl(delta_bits);
-	return (count <= maximum_hamming_distance);
-}
+namespace ui {
+
+class BasebandStatsView : public View {
+public:
+	BasebandStatsView();
+
+	void on_show() override;
+	void on_hide() override;
+
+private:
+	Text text_stats {
+		{  0 * 8, 0, (4 * 4 + 3) * 8, 1 * 16 },
+		"",
+	};
+
+	void on_statistics_update(const BasebandStatistics& statistics);
+};
+
+} /* namespace ui */
+
+#endif/*__UI_BASEBAND_STATS_VIEW_H__*/

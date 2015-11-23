@@ -52,6 +52,8 @@
 #include "lpc43xx_cpp.hpp"
 using namespace lpc43xx;
 
+#include "sd_card.hpp"
+
 #include <string.h>
 
 class EventDispatcher {
@@ -87,6 +89,7 @@ private:
 	ui::Context& context;
 	uint32_t encoder_last = 0;
 	bool is_running = true;
+	bool sd_card_present = false;
 
 	eventmask_t wait() {
 		return chEvtWaitAny(ALL_EVENTS);
@@ -105,10 +108,6 @@ private:
 			handle_lcd_frame_sync();
 		}
 
-		if( events & EVT_MASK_SD_CARD_PRESENT ) {
-			handle_sd_card_detect();
-		}
-
 		if( events & EVT_MASK_SWITCHES ) {
 			handle_switches();
 		}
@@ -124,13 +123,34 @@ private:
 
 	void handle_application_queue() {
 		std::array<uint8_t, Message::MAX_SIZE> message_buffer;
-		while(const Message* const message = shared_memory.application_queue.pop(message_buffer)) {
-			context.message_map.send(message);
+		while(Message* const message = shared_memory.application_queue.pop(message_buffer)) {
+			context.message_map().send(message);
 		}
 	}
 
 	void handle_rtc_tick() {
+		const auto sd_card_present_now = sdc_lld_is_card_inserted(&SDCD1);
+		if( sd_card_present_now != sd_card_present ) {
+			sd_card_present = sd_card_present_now;
 
+			if( sd_card_present ) {
+				if( sdcConnect(&SDCD1) == CH_SUCCESS ) {
+					if( sd_card::filesystem::mount() == FR_OK ) {
+						SDCardStatusMessage message { true };
+						context.message_map().send(&message);
+					} else {
+						// TODO: Error, modal warning?
+					}
+				} else {
+					// TODO: Error, modal warning?
+				}
+			} else {
+				sdcDisconnect(&SDCD1);
+
+				SDCardStatusMessage message { false };
+				context.message_map().send(&message);
+			}
+		}
 	}
 
 	static ui::Widget* touch_widget(ui::Widget* const w, ui::TouchEvent event) {
@@ -181,10 +201,6 @@ private:
 		painter.paint_widget_tree(top_widget);
 	}
 
-	void handle_sd_card_detect() {
-
-	}
-
 	void handle_switches() {
 		const auto switches_state = get_switches_state();
 		for(size_t i=0; i<switches_state.size(); i++) {
@@ -192,7 +208,7 @@ private:
 			if( switches_state[i] ) {
 				const auto event = static_cast<ui::KeyEvent>(i);
 				if( !event_bubble_key(event) ) {
-					context.focus_manager.update(top_widget, event);
+					context.focus_manager().update(top_widget, event);
 				}
 			}
 		}
@@ -211,7 +227,7 @@ private:
 	}
 
 	bool event_bubble_key(const ui::KeyEvent event) {
-		auto target = context.focus_manager.focus_widget();
+		auto target = context.focus_manager().focus_widget();
 		while( (target != nullptr) && !target->on_key(event) ) {
 			target = target->parent();
 		}
@@ -221,7 +237,7 @@ private:
 	}
 
 	void event_bubble_encoder(const ui::EncoderEvent event) {
-		auto target = context.focus_manager.focus_widget();
+		auto target = context.focus_manager().focus_widget();
 		while( (target != nullptr) && !target->on_encoder(event) ) {
 			target = target->parent();
 		}
@@ -251,7 +267,7 @@ int main(void) {
 	ui::Painter painter;
 	EventDispatcher event_dispatcher { &system_view, painter, context };
 
-	auto& message_handlers = context.message_map;
+	auto& message_handlers = context.message_map();
 	message_handlers.register_handler(Message::ID::Shutdown,
 		[&event_dispatcher](const Message* const) {
 			event_dispatcher.request_stop();
@@ -266,6 +282,9 @@ int main(void) {
 	m4txevent_interrupt_enable();
 
 	event_dispatcher.run();
+
+	sdcDisconnect(&SDCD1);
+	sdcStop(&SDCD1);
 
 	portapack::shutdown();
 	m4_init(portapack::spi_flash::hackrf, portapack::memory::map::m4_code_hackrf);

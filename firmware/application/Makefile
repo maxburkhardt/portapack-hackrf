@@ -161,12 +161,15 @@ CPPSRC = main.cpp \
          ui_font_fixed_8x16.cpp \
          ui_setup.cpp \
          ui_debug.cpp \
+         ui_baseband_stats_view.cpp \
          ui_console.cpp \
          ui_receiver.cpp \
          ui_spectrum.cpp \
          receiver_model.cpp \
          spectrum_color_lut.cpp \
+         ais_baseband.cpp \
          ../common/utility.cpp \
+         ../common/chibios_cpp.cpp \
          ../common/debug.cpp \
          ../common/gcc.cpp \
          m4_startup.cpp \
@@ -212,6 +215,9 @@ INCDIR = ../common $(PORTINC) $(KERNINC) $(TESTINC) \
 # Compiler settings
 #
 
+# TODO: Entertain using MCU=cortex-m0.small-multiply for LPC43xx M0 core.
+# However, on GCC-ARM-Embedded 4.9 2015q2, it seems to produce non-functional
+# binaries.
 MCU  = cortex-m0
 
 #TRGT = arm-elf-

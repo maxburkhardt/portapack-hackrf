@@ -29,6 +29,8 @@
 
 #include "utility.hpp"
 
+#include "ch.h"
+
 class Message {
 public:
 	static constexpr size_t MAX_SIZE = 276;
@@ -41,9 +43,10 @@ public:
 		ChannelSpectrum = 3,
 		AudioStatistics = 4,
 		BasebandConfiguration = 5,
-		FSKConfiguration = 6,
-		FSKPacket = 7,
+		TPMSPacket = 6,
 		Shutdown = 8,
+		AISPacket = 7,
+		SDCardStatus = 10,
 		MAX
 	};
 
@@ -66,8 +69,9 @@ struct RSSIStatistics {
 class RSSIStatisticsMessage : public Message {
 public:
 	constexpr RSSIStatisticsMessage(
+		const RSSIStatistics& statistics
 	) : Message { ID::RSSIStatistics },
-		statistics { }
+		statistics { statistics }
 	{
 	}
 
@@ -76,6 +80,8 @@ public:
 
 struct BasebandStatistics {
 	uint32_t idle_ticks { 0 };
+	uint32_t main_ticks { 0 };
+	uint32_t rssi_ticks { 0 };
 	uint32_t baseband_ticks { 0 };
 	bool saturation { false };
 };
@@ -83,8 +89,9 @@ struct BasebandStatistics {
 class BasebandStatisticsMessage : public Message {
 public:
 	constexpr BasebandStatisticsMessage(
+		const BasebandStatistics& statistics
 	) : Message { ID::BasebandStatistics },
-		statistics { }
+		statistics { statistics }
 	{
 	}
 
@@ -96,14 +103,8 @@ struct ChannelStatistics {
 	size_t count;
 
 	constexpr ChannelStatistics(
-	) : max_db { -120 },
-		count { 0 }
-	{
-	}
-
-	constexpr ChannelStatistics(
-		int32_t max_db,
-		size_t count
+		int32_t max_db = -120,
+		size_t count = 0
 	) : max_db { max_db },
 		count { count }
 	{
@@ -113,8 +114,7 @@ struct ChannelStatistics {
 class ChannelStatisticsMessage : public Message {
 public:
 	constexpr ChannelStatisticsMessage(
-	) : Message { ID::ChannelStatistics },
-		statistics { }
+	) : Message { ID::ChannelStatistics }
 	{
 	}
 
@@ -159,6 +159,16 @@ struct BasebandConfiguration {
 	int32_t mode;
 	uint32_t sampling_rate;
 	size_t decimation_factor;
+
+	constexpr BasebandConfiguration(
+		int32_t mode = -1,
+		uint32_t sampling_rate = 0,
+		size_t decimation_factor = 1
+	) : mode { mode },
+		sampling_rate { sampling_rate },
+		decimation_factor { decimation_factor }
+	{
+	}
 };
 
 class BasebandConfigurationMessage : public Message {
@@ -191,46 +201,36 @@ public:
 	ChannelSpectrum spectrum;
 };
 
-struct FSKConfiguration {
-	uint32_t symbol_rate;
-	uint32_t access_code;
-	size_t access_code_length;
-	size_t access_code_tolerance;
-	size_t packet_length;
-};
-
-class FSKConfigurationMessage : public Message {
-public:
-	constexpr FSKConfigurationMessage(
-		FSKConfiguration configuration
-	) : Message { ID::FSKConfiguration },
-		configuration(configuration)
-	{
-	}
-
-	FSKConfiguration configuration;
-};
-
 #include <bitset>
 
-struct FSKPacket {
-	std::bitset<256> payload;
-	size_t bits_received;
-
-	FSKPacket(
-	) : bits_received { 0 }
-	{
-	}
+struct AISPacket {
+	std::bitset<1024> payload;
+	size_t bits_received { 0 };
 };
 
-class FSKPacketMessage : public Message {
+class AISPacketMessage : public Message {
 public:
-	FSKPacketMessage(
-	) : Message { ID::FSKPacket }
+	constexpr AISPacketMessage(
+	) : Message { ID::AISPacket }
 	{
 	}
 
-	FSKPacket packet;
+	AISPacket packet;
+};
+
+struct TPMSPacket {
+	std::bitset<1024> payload;
+	size_t bits_received { 0 };
+};
+
+class TPMSPacketMessage : public Message {
+public:
+	constexpr TPMSPacketMessage(
+	) : Message { ID::TPMSPacket }
+	{
+	}
+
+	TPMSPacket packet;
 };
 
 class ShutdownMessage : public Message {
@@ -241,11 +241,26 @@ public:
 	}
 };
 
+class SDCardStatusMessage : public Message {
+public:
+	constexpr SDCardStatusMessage(
+		bool is_mounted
+	) : Message { ID::SDCardStatus },
+		is_mounted { is_mounted }
+	{
+	}
+
+	const bool is_mounted;
+};
+
 class MessageHandlerMap {
 public:
-	using MessageHandler = std::function<void(const Message* const p)>;
+	using MessageHandler = std::function<void(Message* const p)>;
 
 	void register_handler(const Message::ID id, MessageHandler&& handler) {
+		if( map_[toUType(id)] != nullptr ) {
+			chDbgPanic("MsgDblReg");
+		}
 		map_[toUType(id)] = std::move(handler);
 	}
 
@@ -253,7 +268,7 @@ public:
 		map_[toUType(id)] = nullptr;
 	}
 
-	void send(const Message* const message) {
+	void send(Message* const message) {
 		if( message->id < Message::ID::MAX ) {
 			auto& fn = map_[toUType(message->id)];
 			if( fn ) {

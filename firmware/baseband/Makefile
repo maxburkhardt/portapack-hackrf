@@ -133,14 +133,15 @@ CPPSRC = main.cpp \
          channel_decimator.cpp \
          dsp_decimate.cpp \
          dsp_demodulate.cpp \
+         matched_filter.cpp \
          proc_am_audio.cpp \
          proc_nfm_audio.cpp \
          proc_wfm_audio.cpp \
-         proc_fsk.cpp \
+         proc_ais.cpp \
          proc_wideband_spectrum.cpp \
+         proc_tpms.cpp \
          dsp_squelch.cpp \
          clock_recovery.cpp \
-         access_code_correlator.cpp \
          packet_builder.cpp \
          dsp_fft.cpp \
          dsp_fir_taps.cpp \
@@ -151,6 +152,7 @@ CPPSRC = main.cpp \
          audio_dma.cpp \
          touch_dma.cpp \
          ../common/utility.cpp \
+         ../common/chibios_cpp.cpp \
          ../common/debug.cpp \
          ../common/gcc.cpp
 

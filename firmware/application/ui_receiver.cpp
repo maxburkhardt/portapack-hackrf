@@ -21,8 +21,15 @@
 
 #include "ui_receiver.hpp"
 
+#include "ui_spectrum.hpp"
+#include "ui_console.hpp"
+
 #include "portapack.hpp"
 using namespace portapack;
+
+#include "ais_baseband.hpp"
+
+#include "ff.h"
 
 namespace ui {
 
@@ -402,7 +409,6 @@ ReceiverView::ReceiverView(
 		&field_volume,
 		&view_frequency_options,
 		&view_rf_gain_options,
-		&waterfall,
 	} });
 
 	button_done.on_select = [&nav](Button&){
@@ -492,25 +498,106 @@ ReceiverView::~ReceiverView() {
 }
 
 void ReceiverView::on_show() {
-	context().message_map.register_handler(Message::ID::FSKPacket,
-		[](const Message* const p) {
-			const auto message = static_cast<const FSKPacketMessage*>(p);
-			(void)message;
+	auto& message_map = context().message_map();
+	message_map.register_handler(Message::ID::AISPacket,
+		[this](Message* const p) {
+			const auto message = static_cast<const AISPacketMessage*>(p);
+			this->on_packet_ais(*message);
+		}
+	);
+	message_map.register_handler(Message::ID::TPMSPacket,
+		[this](Message* const p) {
+			const auto message = static_cast<const TPMSPacketMessage*>(p);
+			this->on_packet_tpms(*message);
+		}
+	);
+	message_map.register_handler(Message::ID::SDCardStatus,
+		[this](Message* const p) {
+			const auto message = static_cast<const SDCardStatusMessage*>(p);
+			this->on_sd_card_mounted(message->is_mounted);
 		}
 	);
 }
 
 void ReceiverView::on_hide() {
-	context().message_map.unregister_handler(Message::ID::FSKPacket);
+	auto& message_map = context().message_map();
+	message_map.unregister_handler(Message::ID::SDCardStatus);
+	message_map.unregister_handler(Message::ID::TPMSPacket);
+	message_map.unregister_handler(Message::ID::AISPacket);
 }
 
-void ReceiverView::set_parent_rect(const Rect new_parent_rect) {
-	const ui::Dim header_height = 3 * 16;
+void ReceiverView::on_packet_ais(const AISPacketMessage& message) {
+	const auto result = baseband::ais::packet_decode(message.packet.payload, message.packet.bits_received);
 
-	waterfall.set_parent_rect({
-		0, header_height,
-		new_parent_rect.width(), static_cast<ui::Dim>(new_parent_rect.height() - header_height)
-	});
+	auto console = reinterpret_cast<Console*>(widget_content.get());
+	if( result.first == "OK" ) {
+		console->writeln(result.second);
+	}
+}
+
+static FIL fil_tpms;
+
+void ReceiverView::on_packet_tpms(const TPMSPacketMessage& message) {
+	auto payload = message.packet.payload;
+	auto payload_length = message.packet.bits_received;
+
+	std::string hex_data;
+	std::string hex_error;
+	uint8_t byte_data = 0;
+	uint8_t byte_error = 0;
+	for(size_t i=0; i<payload_length; i+=2) {
+		const auto bit_data = payload[i+1];
+		const auto bit_error = (payload[i+0] == payload[i+1]);
+
+		byte_data <<= 1;
+		byte_data |= bit_data ? 1 : 0;
+
+		byte_error <<= 1;
+		byte_error |= bit_error ? 1 : 0;
+
+		if( ((i >> 1) & 7) == 7 ) {
+			hex_data += to_string_hex(byte_data, 2);
+			hex_error += to_string_hex(byte_error, 2);
+		}
+	}
+
+	auto console = reinterpret_cast<Console*>(widget_content.get());
+	console->writeln(hex_data.substr(0, 240 / 8));
+
+	if( !f_error(&fil_tpms) ) {
+		rtc::RTC datetime;
+		rtcGetTime(&RTCD1, &datetime);
+		std::string timestamp = 
+			to_string_dec_uint(datetime.year(), 4) +
+			to_string_dec_uint(datetime.month(), 2, '0') +
+			to_string_dec_uint(datetime.day(), 2, '0') +
+			to_string_dec_uint(datetime.hour(), 2, '0') +
+			to_string_dec_uint(datetime.minute(), 2, '0') +
+			to_string_dec_uint(datetime.second(), 2, '0');
+
+		const auto tuning_frequency = receiver_model.tuning_frequency();
+		// TODO: function doesn't take uint64_t, so when >= 1<<32, weirdness will ensue!
+		const auto tuning_frequency_str = to_string_dec_uint(tuning_frequency, 10);
+
+		std::string log = timestamp + " " + tuning_frequency_str + " FSK 38.4 19.2 " + hex_data + "/" + hex_error + "\r\n";
+		f_puts(log.c_str(), &fil_tpms);
+		f_sync(&fil_tpms);
+	}
+}
+
+void ReceiverView::on_sd_card_mounted(const bool is_mounted) {
+	if( is_mounted ) {
+		const auto open_result = f_open(&fil_tpms, "tpms.txt", FA_WRITE | FA_OPEN_ALWAYS);
+		if( open_result == FR_OK ) {
+			const auto fil_size = f_size(&fil_tpms);
+			const auto seek_result = f_lseek(&fil_tpms, fil_size);
+			if( seek_result != FR_OK ) {
+				f_close(&fil_tpms);
+			}
+		} else {
+			// TODO: Error, indicate somehow.
+		}
+	}
 }
 
 void ReceiverView::focus() {
@@ -541,6 +628,7 @@ void ReceiverView::on_modulation_changed(int32_t modulation) {
 	/* TODO: This is TERRIBLE!!! */
 	switch(modulation) {
 	case 3:
+	case 5:
 		receiver_model.set_baseband_configuration({
 			.mode = modulation,
 			.sampling_rate = 2457600,
@@ -568,7 +656,27 @@ void ReceiverView::on_modulation_changed(int32_t modulation) {
 		break;
 	}
 
-	waterfall.clear();
+	remove_child(widget_content.get());
+	widget_content.reset();
+	
+	switch(modulation) {
+	case 3:
+	case 5:
+		widget_content = std::make_unique<Console>();
+		add_child(widget_content.get());
+		break;
+
+	default:
+		widget_content = std::make_unique<spectrum::WaterfallWidget>();
+		add_child(widget_content.get());
+		break;
+	}
+	
+	if( widget_content ) {
+		const ui::Dim header_height = 3 * 16;
+		const ui::Rect rect { 0, header_height, parent_rect.width(), static_cast<ui::Dim>(parent_rect.height() - header_height) };
+		widget_content->set_parent_rect(rect);
+	}
 }
 
 void ReceiverView::on_show_options_frequency() {

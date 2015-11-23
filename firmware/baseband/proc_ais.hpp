@@ -19,18 +19,16 @@
  * Boston, MA 02110-1301, USA.
  */
 
-#ifndef __PROC_FSK_H__
-#define __PROC_FSK_H__
+#ifndef __PROC_AIS_H__
+#define __PROC_AIS_H__
 
 #include "baseband_processor.hpp"
 
 #include "channel_decimator.hpp"
-#include "dsp_decimate.hpp"
-#include "dsp_demodulate.hpp"
-#include "dsp_fir_taps.hpp"
+#include "matched_filter.hpp"
 
 #include "clock_recovery.hpp"
-#include "access_code_correlator.hpp"
+#include "symbol_coding.hpp"
 #include "packet_builder.hpp"
 
 #include "message.hpp"
@@ -39,29 +37,34 @@
 #include <cstddef>
 #include <bitset>
 
-class FSKProcessor : public BasebandProcessor {
-public:
-	FSKProcessor(MessageHandlerMap& message_handlers);
-	~FSKProcessor();
+#include "ais_baseband.hpp"
 
-	void configure(const FSKConfiguration new_configuration);
+class AISProcessor : public BasebandProcessor {
+public:
+	using payload_t = std::bitset<1024>;
 
 	void execute(buffer_c8_t buffer) override;
 
 private:
-	ChannelDecimator decimator { ChannelDecimator::DecimationFactor::By16 };
-	const fir_taps_real<64>& channel_filter_taps = taps_64_lp_031_070_tfilter;
-	dsp::decimate::FIRAndDecimateBy2Complex<64> channel_filter { channel_filter_taps.taps };
-	dsp::demodulate::FM demod { 76800, 9600 * 2 };
+	ChannelDecimator decimator { ChannelDecimator::DecimationFactor::By32 };
+	dsp::matched_filter::MatchedFilter mf { baseband::ais::rrc_taps_76k8_4t_p, 4 };
 
-	ClockRecovery clock_recovery;
-	AccessCodeCorrelator access_code_correlator;
-	PacketBuilder packet_builder;
+	clock_recovery::ClockRecovery<clock_recovery::FixedErrorFilter> clock_recovery {
+		19200, 9600, { 0.0555f },
+		[this](const float symbol) { this->consume_symbol(symbol); }
+	};
+	symbol_coding::NRZIDecoder nrzi_decode;
+	PacketBuilder<BitPattern, BitPattern, BitPattern> packet_builder {
+		{ 0b0101010101111110, 16, 1 },
+		{ 0b111110, 6 },
+		{ 0b01111110, 8 },
+		[this](const payload_t& payload, const size_t bits_received) {
+			this->payload_handler(payload, bits_received);
+		}
+	};
 
-	MessageHandlerMap& message_handlers;
-
-	void consume_symbol(const uint_fast8_t symbol, const bool access_code_found);
-	void payload_handler(const std::bitset<256>& payload, const size_t bits_received);
+	void consume_symbol(const float symbol);
+	void payload_handler(const payload_t& payload, const size_t bits_received);
 };
 
-#endif/*__PROC_FSK_H__*/
+#endif/*__PROC_AIS_H__*/
