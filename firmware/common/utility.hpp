@@ -25,6 +25,7 @@
 #include <type_traits>
 #include <cstdint>
 #include <cstddef>
+#include <algorithm>
 #include <complex>
 #include <memory>
 
@@ -60,7 +61,18 @@ inline constexpr T pow(const T base, unsigned const exponent) {
 	return (exponent == 0) ? 1 : (base * pow(base, exponent - 1));
 }
 
-float complex16_mag_squared_to_dbv_norm(const float c16_mag_squared);
+constexpr bool power_of_two(const size_t n) {
+	return (n & (n - 1)) == 0;
+}
+
+constexpr size_t log_2(const size_t n, const size_t p = 0) {
+	return (n <= 1) ? p : log_2(n / 2, p + 1);
+}
+
+float fast_log2(const float val);
+float fast_pow2(const float val);
+
+float mag2_to_dbv_norm(const float mag2);
 
 inline float magnitude_squared(const std::complex<float> c) {
 	const auto r = c.real();
@@ -69,6 +81,37 @@ inline float magnitude_squared(const std::complex<float> c) {
 	const auto i2 = i * i;
 	return r2 + i2;
 }
+
+template<class T>
+struct range_t {
+	const T minimum;
+	const T maximum;
+
+	const T& clip(const T& value) const {
+		return std::max(std::min(value, maximum), minimum);
+	}
+
+	void reset_if_outside(T& value, const T& reset_value) const {
+		if( (value < minimum ) ||
+			(value > maximum ) ) {
+			value = reset_value;
+		}
+	}
+
+	bool below_range(const T& value) const {
+		return value < minimum;
+	}
+
+	bool contains(const T& value) const {
+		// TODO: Subtle gotcha here! Range test doesn't include maximum!
+		return (value >= minimum) && (value < maximum);
+	}
+
+	bool out_of_range(const T& value) const {
+		// TODO: Subtle gotcha here! Range test in contains() doesn't include maximum!
+		return !contains(value);
+	}
+};
 
 namespace std {
 

@@ -41,6 +41,20 @@ void lcd_reset() {
 	chThdSleepMilliseconds(120);
 }
 
+void lcd_sleep_in() {
+	io.lcd_data_write_command_and_data(0x10, {});
+	chThdSleepMilliseconds(5);
+}
+
+void lcd_sleep_out() {
+	io.lcd_data_write_command_and_data(0x11, {});
+	chThdSleepMilliseconds(120);
+}
+
+void lcd_display_on() {
+	io.lcd_data_write_command_and_data(0x29, {});
+}
+
 void lcd_init() {
 	// LCDs are configured for IM[2:0] = 001
 	// 8080-I system, 16-bit parallel bus
@@ -147,12 +161,8 @@ void lcd_init() {
 		0x47, 0x04, 0x0C, 0x0B, 0x29, 0x2F, 0x05
 	});
 
-	// Exit Sleep
-	io.lcd_data_write_command_and_data(0x11, {});
-	chThdSleepMilliseconds(120);
-
-	// Display on
-	io.lcd_data_write_command_and_data(0x29, {});
+	lcd_sleep_out();
+	lcd_display_on();
 
 	// Turn on Tearing Effect Line (TE) output signal.
 	io.lcd_data_write_command_and_data(0x35, { 0b00000000 });
@@ -167,6 +177,11 @@ void lcd_set(const uint_fast8_t command, const uint_fast16_t start, const uint_f
 
 void lcd_ramwr_start() {
 	io.lcd_data_write_command_and_data(0x2c, {});
+}
+
+void lcd_ramrd_start() {
+	io.lcd_data_write_command_and_data(0x2e, {});
+	io.lcd_read_word();
 }
 
 void lcd_caset(const uint_fast16_t start_column, uint_fast16_t end_column) {
@@ -186,10 +201,25 @@ void lcd_start_ram_write(
 	lcd_ramwr_start();
 }
 
+void lcd_start_ram_read(
+	const ui::Point p,
+	const ui::Size s
+) {
+	lcd_caset(p.x, p.x + s.w - 1);
+	lcd_paset(p.y, p.y + s.h - 1);
+	lcd_ramrd_start();
+}
+
 void lcd_start_ram_write(
 	const ui::Rect& r
 ) {
 	lcd_start_ram_write(r.pos, r.size);
+}
+
+void lcd_start_ram_read(
+	const ui::Rect& r
+) {
+	lcd_start_ram_read(r.pos, r.size);
 }
 
 void lcd_vertical_scrolling_definition(
@@ -228,6 +258,14 @@ void ILI9341::init() {
 void ILI9341::shutdown() {
 	io.lcd_backlight(0);
 	lcd_reset();
+}
+
+void ILI9341::sleep() {
+	lcd_sleep_in();
+}
+
+void ILI9341::wake() {
+	lcd_sleep_out();
 }
 
 void ILI9341::fill_rectangle(ui::Rect r, const ui::Color c) {
@@ -281,20 +319,42 @@ void ILI9341::draw_pixels(
 	io.lcd_write_pixels(colors, count);
 }
 
+void ILI9341::read_pixels(
+	const ui::Rect r,
+	ui::ColorRGB888* const colors,
+	const size_t count
+) {
+	/* TODO: Assert that rectangle width x height < count */
+	lcd_start_ram_read(r);
+	io.lcd_read_bytes(
+		reinterpret_cast<uint8_t*>(colors),
+		count * sizeof(ui::ColorRGB888)
+	);
+}
+
+void ILI9341::draw_bitmap(
+	const ui::Point p,
+	const ui::Size size,
+	const uint8_t* const pixels,
+	const ui::Color foreground,
+	const ui::Color background
+) {
+	lcd_start_ram_write(p, size);
+
+	const size_t count = size.w * size.h;
+	for(size_t i=0; i<count; i++) {
+		const auto pixel = pixels[i >> 3] & (1U << (i & 0x7));
+		io.lcd_write_pixel(pixel ? foreground : background);
+	}
+}
+
 void ILI9341::draw_glyph(
 	const ui::Point p,
 	const ui::Glyph& glyph,
 	const ui::Color foreground,
 	const ui::Color background
 ) {
-	lcd_start_ram_write(p, glyph.size());
-
-	const size_t count = glyph.w() * glyph.h();
-	const auto pixels = glyph.pixels();
-	for(size_t i=0; i<count; i++) {
-		const auto pixel = pixels[i >> 3] & (1U << (i & 0x7));
-		io.lcd_write_pixel(pixel ? foreground : background);
-	}
+	draw_bitmap(p, glyph.size(), glyph.pixels(), foreground, background);
 }
 
 void ILI9341::scroll_set_area(

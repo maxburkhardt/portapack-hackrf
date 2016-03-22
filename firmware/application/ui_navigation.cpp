@@ -22,13 +22,19 @@
 #include "ui_navigation.hpp"
 
 #include "portapack.hpp"
-#include "receiver_model.hpp"
+#include "event_m0.hpp"
 
 #include "ui_setup.hpp"
 #include "ui_debug.hpp"
-#include "ui_receiver.hpp"
 
-#include "m4_startup.hpp"
+#include "analog_audio_app.hpp"
+#include "ais_app.hpp"
+#include "ert_app.hpp"
+#include "tpms_app.hpp"
+
+#include "core_control.hpp"
+
+#include "png_writer.hpp"
 
 namespace ui {
 
@@ -36,52 +42,98 @@ namespace ui {
 
 SystemStatusView::SystemStatusView() {
 	add_children({ {
-		&portapack,
+		&button_back,
+		&title,
+		&button_camera,
+		&button_sleep,
+		&sd_card_status_view,
 	} });
+
+	button_back.on_select = [this](Button&){
+		if( this->on_back ) {
+			this->on_back();
+		}
+	};
+
+	button_camera.on_select = [this](ImageButton&) {
+		this->on_camera();
+	};
+
+	button_sleep.on_select = [this](ImageButton&) {
+		DisplaySleepMessage message;
+		EventDispatcher::message_map().send(&message);
+	};
+}
+
+void SystemStatusView::set_back_enabled(bool new_value) {
+	button_back.set_text(new_value ? back_text_enabled : back_text_disabled);
+	button_back.set_focusable(new_value);
+}
+
+void SystemStatusView::set_title(const std::string new_value) {
+	if( new_value.empty() ) {
+		title.set(default_title);
+	} else {
+		title.set(new_value);
+	}
+}
+
+void SystemStatusView::on_camera() {
+	PNGWriter png { "capture.png" };
+
+	for(int i=0; i<320; i++) {
+		std::array<ColorRGB888, 240> row;
+		portapack::display.read_pixels({ 0, i, 240, 1 }, row);
+		png.write_scanline(row);
+	}
 }
 
 /* Navigation ************************************************************/
 
-NavigationView::NavigationView()
-{
+bool NavigationView::is_top() const {
+	return view_stack.size() == 1;
 }
 
-void NavigationView::push(View* new_view) {
-	// TODO: Trap nullptr?
-	// TODO: Trap push of object already on stack?
-	view_stack.push_back(new_view);
-	set_view(new_view);
+View* NavigationView::push_view(std::unique_ptr<View> new_view) {
+	free_view();
+
+	const auto p = new_view.get();
+	view_stack.emplace_back(std::move(new_view));
+
+	update_view();
+
+	return p;
 }
 
 void NavigationView::pop() {
 	// Can't pop last item from stack.
 	if( view_stack.size() > 1 ) {
-		const auto old_view = view_stack.back();
+		free_view();
+
 		view_stack.pop_back();
-		const auto new_view = view_stack.back();
-		set_view(new_view);
-		delete old_view;
+
+		update_view();
+	}
+}
+
+void NavigationView::free_view() {
+	remove_child(view());
+}
+
+void NavigationView::update_view() {
+	const auto new_view = view_stack.back().get();
+	add_child(new_view);
+	new_view->set_parent_rect({ {0, 0}, size() });
+	focus();
+	set_dirty();
+
+	if( on_view_changed ) {
+		on_view_changed(*new_view);
 	}
 }
 
 Widget* NavigationView::view() const {
 	return children_.empty() ? nullptr : children_[0];
-}
-
-void NavigationView::set_view(Widget* const new_view) {
-	const auto old_view = view();
-	if( old_view ) {
-		remove_child(old_view);
-	}
-
-	// TODO: Allow new_view == nullptr?!
-	if( new_view ) {
-		add_child(new_view);
-		new_view->set_parent_rect({ {0, 0}, size() });
-		focus();
-	}
-
-	set_dirty();
 }
 
 void NavigationView::focus() {
@@ -90,17 +142,38 @@ void NavigationView::focus() {
 	}
 }
 
+/* TransceiversMenuView **************************************************/
+
+TranspondersMenuView::TranspondersMenuView(NavigationView& nav) {
+	add_items<3>({ {
+		{ "AIS:  Boats",          [&nav](){ nav.push<AISAppView>(); } },
+		{ "ERT:  Utility Meters", [&nav](){ nav.push<ERTAppView>(); } },
+		{ "TPMS: Cars",           [&nav](){ nav.push<TPMSAppView>(); } },
+	} });
+	on_left = [&nav](){ nav.pop(); };
+}
+
+/* ReceiverMenuView ******************************************************/
+
+ReceiverMenuView::ReceiverMenuView(NavigationView& nav) {
+	add_items<2>({ {
+		{ "Audio",        [&nav](){ nav.push<AnalogAudioView>(); } },
+		{ "Transponders", [&nav](){ nav.push<TranspondersMenuView>(); } },
+	} });
+	on_left = [&nav](){ nav.pop(); };
+}
+
 /* SystemMenuView ********************************************************/
 
 SystemMenuView::SystemMenuView(NavigationView& nav) {
 	add_items<7>({ {
-		{ "Receiver", [&nav](){ nav.push(new ReceiverView       { nav, portapack::receiver_model }); } },
-		{ "Capture",  [&nav](){ nav.push(new NotImplementedView { nav }); } },
-		{ "Analyze",  [&nav](){ nav.push(new NotImplementedView { nav }); } },
-		{ "Setup",    [&nav](){ nav.push(new SetupMenuView      { nav }); } },
-		{ "About",    [&nav](){ nav.push(new AboutView          { nav }); } },
-		{ "Debug",    [&nav](){ nav.push(new DebugMenuView      { nav }); } },
-		{ "HackRF",   [&nav](){ nav.push(new HackRFFirmwareView { nav }); } },
+		{ "Receiver", [&nav](){ nav.push<ReceiverMenuView>(); } },
+		{ "Capture",  [&nav](){ nav.push<NotImplementedView>(); } },
+		{ "Analyze",  [&nav](){ nav.push<NotImplementedView>(); } },
+		{ "Setup",    [&nav](){ nav.push<SetupMenuView>(); } },
+		{ "About",    [&nav](){ nav.push<AboutView>(); } },
+		{ "Debug",    [&nav](){ nav.push<DebugMenuView>(); } },
+		{ "HackRF",   [&nav](){ nav.push<HackRFFirmwareView>(); } },
 	} });
 }
 
@@ -118,7 +191,7 @@ SystemView::SystemView(
 ) : View { parent_rect },
 	context_(context)
 {
-	style_ = &style_default;
+	set_style(&style_default);
 
 	constexpr ui::Dim status_view_height = 16;
 
@@ -127,16 +200,23 @@ SystemView::SystemView(
 		{ 0, 0 },
 		{ parent_rect.width(), status_view_height }
 	});
+	status_view.on_back = [this]() {
+		this->navigation_view.pop();
+	};
 
 	add_child(&navigation_view);
 	navigation_view.set_parent_rect({
 		{ 0, status_view_height },
 		{ parent_rect.width(), static_cast<ui::Dim>(parent_rect.height() - status_view_height) }
 	});
+	navigation_view.on_view_changed = [this](const View& new_view) {
+		this->status_view.set_back_enabled(!this->navigation_view.is_top());
+		this->status_view.set_title(new_view.title());
+	};
 
 	// Initial view.
 	// TODO: Restore from non-volatile memory?
-	navigation_view.push(new SystemMenuView { navigation_view });
+	navigation_view.push<SystemMenuView>();
 }
 
 Context& SystemView::context() const {

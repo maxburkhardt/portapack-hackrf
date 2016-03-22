@@ -23,19 +23,11 @@
 #define __UI_RECEIVER_H__
 
 #include "ui.hpp"
-#include "ui_font_fixed_8x16.hpp"
 #include "ui_navigation.hpp"
 #include "ui_painter.hpp"
 #include "ui_widget.hpp"
 
-#include "utility.hpp"
-
-#include "max2837.hpp"
 #include "rf_path.hpp"
-#include "volume.hpp"
-#include "wm8731.hpp"
-
-#include "receiver_model.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -43,11 +35,6 @@
 #include <functional>
 
 namespace ui {
-
-class BasebandBandwidthField : public OptionsField {
-public:
-	BasebandBandwidthField(Point parent_pos);
-};
 
 class FrequencyField : public Widget {
 public:
@@ -76,8 +63,6 @@ private:
 	const range_t range;
 	rf::Frequency value_;
 	rf::Frequency step { 25000 };
-
-	//bool turbo { false };
 
 	rf::Frequency clamp_value(rf::Frequency value);
 };
@@ -118,13 +103,6 @@ public:
 	}
 
 	void add_digit(const char c) {
-		/*
-		if( justify == Justify::Right ) {
-			push_right(c);
-		} else {
-			insert_right(c);
-		}
-		*/
 		insert_right(c);
 	}
 
@@ -209,16 +187,15 @@ public:
 	void set_value(const rf::Frequency new_value);
 
 private:
-	static constexpr size_t button_w = 240 / 3;
-	static constexpr size_t button_h = 48;
+	static constexpr int button_w = 240 / 3;
+	static constexpr int button_h = 48;
 
-	static constexpr size_t mhz_digits = 4;
-	static constexpr size_t submhz_digits = 4;
+	static constexpr int mhz_digits = 4;
+	static constexpr int submhz_digits = 4;
 
-	static constexpr size_t mhz_mod = pow(10, mhz_digits);
-	static constexpr size_t submhz_base = pow(10, 6 - submhz_digits);
-	//static constexpr size_t submhz_mod = pow(10, submhz_digits);
-	static constexpr size_t text_digits = mhz_digits + 1 + submhz_digits;
+	static constexpr int mhz_mod = pow(10, mhz_digits);
+	static constexpr int submhz_base = pow(10, 6 - submhz_digits);
+	static constexpr int text_digits = mhz_digits + 1 + submhz_digits;
 
 	Text text_value {
 		{ 0, 0, text_digits * button_w, button_h }
@@ -274,6 +251,10 @@ private:
 		{
 			{ "  100",      100 },
 			{ "  1k ",     1000 },
+			{ "  3k ",     3000 },	/* Approximate SSB bandwidth */
+			{ "  5k ",     5000 },
+			{ "  6k3",     6250 },
+			{ "  9k ",     9000 },	/* channel spacing for LF, MF in some regions */
 			{ " 10k ",    10000 },
 			{ " 12k5",    12500 },
 			{ " 25k ",    25000 },
@@ -285,11 +266,6 @@ private:
 
 	void on_step_changed(rf::Frequency v);
 	void on_reference_ppm_correction_changed(int32_t v);
-
-	Text text_correction {
-		{ 17 * 8, 0 * 16, 5 * 8, 16 },
-		"Corr.",
-	};
 
 	NumberField field_ppm {
 		{ 23 * 8, 0 * 16 },
@@ -326,18 +302,6 @@ private:
 		1,
 		' ',
 	};
-	/*
-	Text label_agc {
-		{ 6 * 8, 0 * 16, 3 * 8, 1 * 16 },
-		"AGC"
-	};
-
-	NumberField field_agc {
-		{ 10 * 8, 0 * 16},
-		1,
-		{ 0, 1 }
-	};
-	*/
 
 	void on_rf_amp_changed(bool enable);
 };
@@ -349,133 +313,6 @@ public:
 	LNAGainField(Point parent_pos);
 
 	void on_focus() override;
-};
-
-constexpr Style style_options_group {
-	.font = font::fixed_8x16,
-	.background = Color::blue(),
-	.foreground = Color::white(),
-};
-
-class ReceiverView : public View {
-public:
-	ReceiverView(NavigationView& nav, ReceiverModel& receiver_model);
-	~ReceiverView();
-
-	void focus() override;
-
-	void on_show() override;
-	void on_hide() override;
-
-private:
-	ReceiverModel& receiver_model;
-
-	RSSI rssi {
-		{ 19 * 8, 0, 11 * 8, 4 },
-	};
-
-	Channel channel {
-		{ 19 * 8, 5, 11 * 8, 4 },
-	};
-
-	Audio audio {
-		{ 19 * 8, 10, 11 * 8, 4 },
-	};
-
-	Button button_done {
-		{ 0 * 8, 0 * 16, 3 * 8, 16 },
-		" < ",
-	};
-
-	FrequencyField field_frequency {
-		{ 0 * 8, 1 * 16 },
-	};
-
-	LNAGainField field_lna {
-		{ 13 * 8, 1 * 16 }
-	};
-	/*
-	BasebandBandwidthField options_baseband_bandwidth {
-		{ 15 * 8, 1 * 16 },
-	};
-	*/
-	NumberField field_vga {
-		{ 16 * 8, 1 * 16},
-		2,
-		{ max2837::vga::gain_db_min, max2837::vga::gain_db_max },
-		max2837::vga::gain_db_step,
-		' ',
-	};
-
-	OptionsField options_modulation {
-		{ 19 * 8, 1 * 16 },
-		4,
-		{
-			// TODO: Put ordinals in here...
-			{ " AM ", 0 },
-			{ "NFM ", 1 },
-			{ "WFM ", 2 },
-			{ "AIS ", 3 },
-			{ "TPMS", 5 },
-			{ "SPEC", 4 },
-		}
-	};
-/*
-	OptionsField options_baseband_oversampling {
-		{ 24 * 8, 1 * 16 },
-		1,
-		{
-			{ "4", 4 },
-			{ "6", 6 },
-			{ "8", 8 },
-		}
-	};
-*/
-	NumberField field_vregmode {
-		{ 24 * 8, 1 * 16 },
-		1,
-		{ 0, 1 },
-		1,
-		' ',
-	};
-
-	NumberField field_volume {
-		{ 28 * 8, 1 * 16 },
-		2,
-		{ 0, 99 },
-		1,
-		' ',
-	};
-
-	FrequencyOptionsView view_frequency_options {
-		{ 0 * 8, 2 * 16, 30 * 8, 1 * 16 },
-		&style_options_group
-	};
-
-	RadioGainOptionsView view_rf_gain_options {
-		{ 0 * 8, 2 * 16, 30 * 8, 1 * 16 },
-		&style_options_group
-	};
-
-	std::unique_ptr<Widget> widget_content;
-
-	void on_tuning_frequency_changed(rf::Frequency f);
-	void on_baseband_bandwidth_changed(uint32_t bandwidth_hz);
-	void on_rf_amp_changed(bool v);
-	void on_lna_changed(int32_t v_db);
-	void on_vga_changed(int32_t v_db);
-	void on_modulation_changed(int32_t modulation);
-	void on_show_options_frequency();
-	void on_show_options_rf_gain();
-	void on_frequency_step_changed(rf::Frequency f);
-	void on_reference_ppm_correction_changed(int32_t v);
-	void on_headphone_volume_changed(int32_t v);
-//	void on_baseband_oversampling_changed(int32_t v);
-	void on_edit_frequency();
-
-	void on_packet_ais(const AISPacketMessage& message);
-	void on_packet_tpms(const TPMSPacketMessage& message);
-	void on_sd_card_mounted(const bool is_mounted);
 };
 
 } /* namespace ui */

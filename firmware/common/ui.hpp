@@ -36,13 +36,7 @@ struct Color {
 	) : v { 0 }
 	{
 	}
-/*
-	explicit constexpr Color(
-		const uint32_t value
-	) : v { static_cast<uint16_t>(value) }
-	{
-	}
-*/
+
 	constexpr Color(
 		uint8_t r,
 		uint8_t g,
@@ -80,14 +74,13 @@ struct Color {
 		return { 255, 255, 255 };
 	}
 };
-#if 0
-enum class CardinalDirection : uint8_t {
-	West,
-	South,
-	North,
-	East,
+
+struct ColorRGB888 {
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
 };
-#endif
+
 struct Point {
 	Coord x;
 	Coord y;
@@ -99,23 +92,23 @@ struct Point {
 	}
 
 	constexpr Point(
-		Coord x,
-		Coord y
-	) : x { x },
-		y { y }
+		int x,
+		int y
+	) : x { static_cast<Coord>(x) },
+		y { static_cast<Coord>(y) }
 	{
 	}
 
 	Point operator-() const {
-		return { static_cast<Coord>(-x), static_cast<Coord>(-y) };
+		return { -x, -y };
 	}
 
 	Point operator+(const Point& p) const {
-		return { static_cast<Coord>(x + p.x), static_cast<Coord>(y + p.y) };
+		return { x + p.x, y + p.y };
 	}
 
 	Point operator-(const Point& p) const {
-		return { static_cast<Coord>(x - p.x), static_cast<Coord>(y - p.y) };
+		return { x - p.x, y - p.y };
 	}
 
 	Point& operator+=(const Point& p) {
@@ -123,44 +116,6 @@ struct Point {
 		y += p.y;
 		return *this;
 	}
-#if 0
-	uint32_t magnitude_squared() const {
-		return (x * x) + (y * y);
-	}
-
-	CardinalDirection cardinal_direction() const {
-		/* TODO: Doesn't handle 0,0 */
-
-		const auto rotated = sloppy_rotate_by_45_degrees();
-
-		if( rotated.x > 0 ) {
-			if( rotated.y > 0 ) {
-				return CardinalDirection::East;
-			} else {
-				// y<=0
-				return CardinalDirection::North;
-			}
-		} else {
-			// x<=0
-			if( rotated.y > 0 ) {
-				return CardinalDirection::South;
-			} else {
-				return CardinalDirection::West;
-			}
-		}
-	}
-
-private:
-	Point sloppy_rotate_by_45_degrees() const {
-		/* Clockwise rotate (in screen coordinates), with a gain in
-		 * magnitude of sqrt(2).
-		 */
-		return {
-			static_cast<Coord>(x - y),
-			static_cast<Coord>(x + y)
-		};
-	}
-#endif
 };
 
 struct Size {
@@ -174,10 +129,10 @@ struct Size {
 	}
 
 	constexpr Size(
-		Dim w,
-		Dim h
-	) : w { w },
-		h { h }
+		int w,
+		int h
+	) : w { static_cast<Dim>(w) },
+		h { static_cast<Dim>(h) }
 	{
 	}
 
@@ -197,8 +152,8 @@ struct Rect {
 	}
 
 	constexpr Rect(
-		Coord x, Coord y,
-		Dim w, Dim h
+		int x, int y,
+		int w, int h
 	) : pos { x, y },
 		size { w, h }
 	{
@@ -211,36 +166,33 @@ struct Rect {
 		size(size)
 	{
 	}
-
-	Coord top() const {
+	
+	int top() const {
 		return pos.y;
 	}
 
-	Coord bottom() const {
+	int bottom() const {
 		return pos.y + size.h;
 	}
 
-	Coord left() const {
+	int left() const {
 		return pos.x;
 	}
 
-	Coord right() const {
+	int right() const {
 		return pos.x + size.w;
 	}
 
-	Dim width() const {
+	int width() const {
 		return size.w;
 	}
 
-	Dim height() const {
+	int height() const {
 		return size.h;
 	}
 
 	Point center() const {
-		return {
-			static_cast<Coord>(pos.x + size.w / 2),
-			static_cast<Coord>(pos.y + size.h / 2)
-		};
+		return { pos.x + size.w / 2, pos.y + size.h / 2 };
 	}
 
 	bool is_empty() const {
@@ -260,6 +212,11 @@ struct Rect {
 	operator bool() const {
 		return !size.is_empty();
 	}
+};
+
+struct Bitmap {
+	const Size size;
+	const uint8_t* const data;
 };
 
 enum class KeyEvent {

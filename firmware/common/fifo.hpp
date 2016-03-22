@@ -22,18 +22,24 @@
 #ifndef __FIFO_H__
 #define __FIFO_H__
 
+#include <cstddef>
 #include <algorithm>
 #include <cstring>
+#include <memory>
 
 #include <hal.h>
 
 /* FIFO implementation inspired by Linux kfifo. */
 
-template<typename T, size_t K>
+template<typename T>
 class FIFO {
 public:
 	constexpr FIFO(
-	) : _in { 0 },
+		T* data,
+		size_t k
+	) : _data { data },
+		_size { 1U << k },
+		_in { 0 },
 		_out { 0 }
 	{
 	}
@@ -42,6 +48,10 @@ public:
 		_in = _out = 0;
 	}
 
+	void reset_in() {
+		_in = _out;
+	}
+	
 	void reset_out() {
 		_out = _in;
 	}
@@ -59,19 +69,21 @@ public:
 	}
 
 	bool is_full() const {
-		return len() > mask();
+		return unused() == 0;
 	}
-/*
+
 	bool in(const T& val) {
-		const bool is_not_full = !is_full();
-		if( is_not_full ) {
-			_data[_in & mask()] = val;
-			smp_wmb();
-			_in++;
+		if( is_full() ) {
+			return false;
 		}
-		return is_not_full;
+
+		_data[_in & mask()] = val;
+		smp_wmb();
+		_in += 1;
+		
+		return true;
 	}
-*/
+
 	size_t in(const T* const buf, size_t len) {
 		const size_t l = unused();
 		if( len > l ) {
@@ -93,7 +105,7 @@ public:
 		_in += len + recsize();
 		return len;
 	}
-/*
+
 	bool out(T& val) {
 		if( is_empty() ) {
 			return false;
@@ -105,10 +117,30 @@ public:
 
 		return true;
 	}
-*/
+
 	size_t out(T* const buf, size_t len) {
 		len = out_peek(buf, len);
 		_out += len;
+		return len;
+	}
+
+	bool skip() {
+		if( is_empty() ) {
+			return false;
+		}
+
+		size_t len = peek_n();
+		_out += len + recsize();
+		return true;
+	}
+
+	size_t peek_r(void* const buf, size_t len) {
+		if( is_empty() ) {
+			return 0;
+		}
+
+		size_t n;
+		len = out_copy_r((T*)buf, len, &n);
 		return len;
 	}
 
@@ -124,15 +156,15 @@ public:
 	}
 
 private:
-	static constexpr size_t size() {
-		return (1UL << K);
+	size_t size() const {
+		return _size;
 	}
 
 	static constexpr size_t esize() {
 		return sizeof(T);
 	}
 
-	static constexpr size_t mask() {
+	size_t mask() const {
 		return size() - 1;
 	}
 
@@ -198,9 +230,10 @@ private:
 		return buf_len;
 	}
 
-	T _data[size()];
-	size_t _in;
-	size_t _out;
+	T* const _data;
+	const size_t _size;
+	volatile size_t _in;
+	volatile size_t _out;
 };
 
 #endif/*__FIFO_H__*/

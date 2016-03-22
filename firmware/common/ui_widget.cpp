@@ -26,6 +26,8 @@
 #include <cstddef>
 #include <algorithm>
 
+#include "string_format.hpp"
+
 namespace ui {
 
 static bool ui_dirty = true;
@@ -42,103 +44,12 @@ bool is_dirty() {
 	return ui_dirty;
 }
 
-constexpr size_t to_string_max_length = 16;
-
-static char* to_string_dec_uint_internal(
-	char* p,
-	uint32_t n
-) {
-	*p = 0;
-	auto q = p;
-
-	do {
-		const uint32_t d = n % 10;
-		const char c = d + 48;
-		*(--q) = c;
-		n /= 10;
-	} while( n != 0 );
-
-	return q;
-}
-
-static char* to_string_dec_uint_pad_internal(
-	char* const term,
-	const uint32_t n,
-	const int32_t l,
-	const char fill
-) {
-	auto q = to_string_dec_uint_internal(term, n);
-
-	if( fill ) {
-		while( (term - q) < l ) {
-			*(--q) = fill;
-		}
-	}
-
-	return q;
-}
-
-std::string to_string_dec_uint(
-	const uint32_t n,
-	const int32_t l,
-	const char fill
-) {
-	char p[16];
-	auto term = p + sizeof(p) - 1;
-	auto q = to_string_dec_uint_pad_internal(term, n, l, fill);
-
-	// Right justify.
-	while( (term - q) < l ) {
-		*(--q) = ' ';
-	}
-
-	return q;
-}
-
-std::string to_string_dec_int(
-	const int32_t n,
-	const int32_t l,
-	const char fill
-) {
-	const size_t negative = (n < 0) ? 1 : 0;
-	uint32_t n_abs = negative ? -n : n;
-
-	char p[16];
-	auto term = p + sizeof(p) - 1;
-	auto q = to_string_dec_uint_pad_internal(term, n_abs, l - negative, fill);
-
-	// Add sign.
-	if( negative ) {
-		*(--q) = '-';
-	}
-
-	// Right justify.
-	while( (term - q) < l ) {
-		*(--q) = ' ';
-	}
-
-	return q;
-}
-
-static void to_string_hex_internal(char* p, const uint32_t n, const int32_t l) {
-	const uint32_t d = n & 0xf;
-	p[l] = (d > 9) ? (d + 87) : (d + 48);
-	if( l > 0 ) {
-		to_string_hex_internal(p, n >> 4, l - 1);
-	}
-}
-
-std::string to_string_hex(const uint32_t n, const int32_t l) {
-	char p[16];
-	to_string_hex_internal(p, n, l - 1);
-	p[l] = 0;
-	return p;
-}
-
 /* Widget ****************************************************************/
 
+const std::vector<Widget*> Widget::no_children { };
+
 Point Widget::screen_pos() {
-	return parent() ? (parent()->screen_pos() + parent_rect.pos) : parent_rect.pos;
+	return screen_rect().pos;
 }
 
 Size Widget::size() const {
@@ -186,7 +97,9 @@ void Widget::hidden(bool hide) {
 
 		// If parent is hidden, either of these is a no-op.
 		if( hide ) {
-			parent()->set_dirty();
+			// TODO: Instead of dirtying parent entirely, dirty only children
+			// that overlap with this widget.
+			parent()->dirty_overlapping_children_in_rect(parent_rect);
 			/* TODO: Notify self and all non-hidden children that they're
 			 * now effectively hidden?
 			 */
@@ -219,17 +132,12 @@ bool Widget::focusable() const {
 	return flags.focusable;
 }
 
+void Widget::set_focusable(const bool value) {
+	flags.focusable = value;
+}
+
 bool Widget::has_focus() {
 	return (context().focus_manager().focus_widget() == this);
-}
-
-Widget* Widget::last_child_focus() const {
-	return nullptr;
-}
-
-void Widget::set_last_child_focus(Widget* const child) {
-	// Ignore.
-	(void)child;
 }
 
 bool Widget::on_key(const KeyEvent event) {
@@ -247,8 +155,8 @@ bool Widget::on_touch(const TouchEvent event) {
 	return false;
 }
 
-const std::vector<Widget*> Widget::children() const {
-	return { };
+const std::vector<Widget*>& Widget::children() const {
+	return no_children;
 }
 
 Context& Widget::context() const {
@@ -289,12 +197,23 @@ void Widget::visible(bool v) {
 	}
 }
 
-/* View ******************************************************************/
-
-void View::set_parent_rect(const Rect new_parent_rect) {
-	Widget::set_parent_rect(new_parent_rect);
-	dirty_screen_rect += screen_rect();
+bool Widget::highlighted() const {
+	return flags.highlighted;
 }
+
+void Widget::set_highlighted(const bool value) {
+	flags.highlighted = value;
+}
+
+void Widget::dirty_overlapping_children_in_rect(const Rect& child_rect) {
+	for(auto child : children()) {
+		if( !child_rect.intersect(child->parent_rect).is_empty() ) {
+			child->set_dirty();
+		}
+	}
+}
+
+/* View ******************************************************************/
 
 void View::paint(Painter& painter) {
 	painter.fill_rectangle(
@@ -322,23 +241,28 @@ void View::add_children(const std::vector<Widget*>& children) {
 void View::remove_child(Widget* const widget) {
 	if( widget ) {
 		children_.erase(std::remove(children_.begin(), children_.end(), widget), children_.end());
-		dirty_screen_rect += widget->screen_rect();
+		dirty_overlapping_children_in_rect(widget->screen_rect());
 		widget->set_parent(nullptr);
-		if( dirty_screen_rect ) {
-			set_dirty();
-		}
 	}
 }
 
-const std::vector<Widget*> View::children() const {
+const std::vector<Widget*>& View::children() const {
 	return children_;
 }
 
-Widget* View::initial_focus() {
-	return nullptr;
-}
+std::string View::title() const {
+	return "";
+};
 
 /* Rectangle *************************************************************/
+
+Rectangle::Rectangle(
+	Rect parent_rect,
+	Color c
+) : Widget { parent_rect },
+	color { c }
+{
+}
 
 void Rectangle::set_color(const Color c) {
 	color = c;
@@ -354,20 +278,48 @@ void Rectangle::paint(Painter& painter) {
 
 /* Text ******************************************************************/
 
+Text::Text(
+	Rect parent_rect,
+	std::string text
+) : Widget { parent_rect },
+	text { text }
+{
+}
+
+Text::Text(
+	Rect parent_rect
+) : Text { parent_rect, { } }
+{
+}
+
 void Text::set(const std::string value) {
 	text = value;
 	set_dirty();
 }
 
 void Text::paint(Painter& painter) {
+	const auto rect = screen_rect();
+	const auto s = style();
+
+	painter.fill_rectangle(rect, s.background);
+
 	painter.draw_string(
-		screen_pos(),
-		style(),
+		rect.pos,
+		s,
 		text
 	);
 }
 
 /* Button ****************************************************************/
+
+ Button::Button(
+	Rect parent_rect,
+	std::string text
+) : Widget { parent_rect },
+	text_ { text }
+{
+	set_focusable(true);
+}
 
 void Button::set_text(const std::string value) {
 	text_ = value;
@@ -381,24 +333,18 @@ std::string Button::text() const {
 void Button::paint(Painter& painter) {
 	const auto r = screen_rect();
 
-	const auto paint_style = (has_focus() || flags.highlighted) ? style().invert() : style();
+	const auto paint_style = (has_focus() || highlighted()) ? style().invert() : style();
 
 	painter.draw_rectangle(r, style().foreground);
 
 	painter.fill_rectangle(
-		{
-			static_cast<Coord>(r.pos.x + 1), static_cast<Coord>(r.pos.y + 1),
-			static_cast<Dim>(r.size.w - 2), static_cast<Dim>(r.size.h - 2)
-		},
+		{ r.pos.x + 1, r.pos.y + 1, r.size.w - 2, r.size.h - 2 },
 		paint_style.background
 	);
 
 	const auto label_r = paint_style.font.size_of(text_);
 	painter.draw_string(
-		{
-			static_cast<Coord>(r.pos.x + (r.size.w - label_r.w) / 2),
-			static_cast<Coord>(r.pos.y + (r.size.h - label_r.h) / 2)
-		},
+		{ r.pos.x + (r.size.w - label_r.w) / 2, r.pos.y + (r.size.h - label_r.h) / 2 },
 		paint_style,
 		text_
 	);
@@ -418,13 +364,13 @@ bool Button::on_key(const KeyEvent key) {
 bool Button::on_touch(const TouchEvent event) {
 	switch(event.type) {
 	case TouchEvent::Type::Start:
-		flags.highlighted = true;
+		set_highlighted(true);
 		set_dirty();
 		return true;
 
 
 	case TouchEvent::Type::End:
-		flags.highlighted = false;
+		set_highlighted(false);
 		set_dirty();
 		if( on_select ) {
 			on_select(*this);
@@ -467,7 +413,111 @@ bool Button::on_touch(const TouchEvent event) {
 #endif
 }
 
+/* Image *****************************************************************/
+
+Image::Image(
+) : Image { { }, nullptr, Color::white(), Color::black() }
+{
+}
+
+Image::Image(
+	const Rect parent_rect,
+	const Bitmap* bitmap,
+	const Color foreground,
+	const Color background
+) : Widget { parent_rect },
+	bitmap_ { bitmap },
+	foreground_ { foreground },
+	background_ { background }
+{
+}
+
+void Image::set_bitmap(const Bitmap* bitmap) {
+	bitmap_ = bitmap;
+	set_dirty();
+}
+
+void Image::set_foreground(const Color color) {
+	foreground_ = color;
+	set_dirty();
+}
+
+void Image::set_background(const Color color) {
+	background_ = color;
+	set_dirty();
+}
+
+void Image::paint(Painter& painter) {
+	if( bitmap_ ) {
+		// Code also handles ImageButton behavior.
+		const bool selected = (has_focus() || highlighted());
+		painter.draw_bitmap(
+			screen_pos(),
+			*bitmap_,
+			selected ? background_ : foreground_,
+			selected ? foreground_ : background_
+		);
+	}
+}
+
+/* ImageButton ***********************************************************/
+
+// TODO: Virtually all this code is duplicated from Button. Base class?
+
+ImageButton::ImageButton(
+	const Rect parent_rect,
+	const Bitmap* bitmap,
+	const Color foreground,
+	const Color background
+) : Image { parent_rect, bitmap, foreground, background }
+{
+	set_focusable(true);
+}
+
+bool ImageButton::on_key(const KeyEvent key) {
+	if( key == KeyEvent::Select ) {
+		if( on_select ) {
+			on_select(*this);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool ImageButton::on_touch(const TouchEvent event) {
+	switch(event.type) {
+	case TouchEvent::Type::Start:
+		set_highlighted(true);
+		set_dirty();
+		return true;
+
+
+	case TouchEvent::Type::End:
+		set_highlighted(false);
+		set_dirty();
+		if( on_select ) {
+			on_select(*this);
+		}
+		return true;
+
+	default:
+		return false;
+	}
+}
+
 /* OptionsField **********************************************************/
+
+OptionsField::OptionsField(
+	Point parent_pos,
+	size_t length,
+	options_t options
+) : Widget { { parent_pos, { static_cast<ui::Dim>(8 * length), 16 } } },
+	length_ { length },
+	options { options }
+{
+	set_focusable(true);
+}
 
 size_t OptionsField::selected_index() const {
 	return selected_index_;
@@ -488,7 +538,7 @@ void OptionsField::set_selected_index(const size_t new_index) {
 void OptionsField::set_by_value(value_t v) {
 	size_t new_index { 0 };
 	for(const auto& option : options) {
-		if( option.second >= v ) {
+		if( option.second == v ) {
 			set_selected_index(new_index);
 			break;
 		}
@@ -509,6 +559,12 @@ void OptionsField::paint(Painter& painter) {
 	}
 }
 
+void OptionsField::on_focus() {
+	if( on_show_options ) {
+		on_show_options();
+	}
+}
+
 bool OptionsField::on_encoder(const EncoderEvent delta) {
 	set_selected_index(selected_index() + delta);
 	return true;
@@ -522,6 +578,21 @@ bool OptionsField::on_touch(const TouchEvent event) {
 }
 
 /* NumberField ***********************************************************/
+
+NumberField::NumberField(
+	Point parent_pos,
+	size_t length,
+	range_t range,
+	int32_t step,
+	char fill_char
+) : Widget { { parent_pos, { static_cast<ui::Dim>(8 * length), 16 } } },
+	range { range },
+	step { step },
+	length_ { length },
+	fill_char { fill_char }
+{
+	set_focusable(true);
+}
 
 int32_t NumberField::value() const {
 	return value_;

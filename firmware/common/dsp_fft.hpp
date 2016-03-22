@@ -31,8 +31,8 @@
 
 #include "dsp_types.hpp"
 #include "complex.hpp"
-#include "sine_table.hpp"
 #include "hal.h"
+#include "utility.hpp"
 
 namespace std {
 	/* https://github.com/AE9RB/fftbench/blob/master/cxlr.hpp
@@ -47,14 +47,6 @@ namespace std {
 		};
 	}
 } /* namespace std */
-
-constexpr bool power_of_two(const size_t n) {
-	return (n & (n - 1)) == 0;
-}
-
-constexpr size_t log_2(const size_t n, const size_t p = 0) {
-	return (n <= 1) ? p : log_2(n / 2, p + 1);
-}
 
 template<typename T, size_t N>
 void fft_swap(const buffer_c16_t src, std::array<T, N>& dst) {
@@ -110,15 +102,25 @@ void fft_swap_in_place(std::array<T, N>& data) {
 template<typename T, size_t N>
 void fft_c_preswapped(std::array<T, N>& data) {
 	static_assert(power_of_two(N), "only defined for N == power of two");
+	constexpr auto K = log_2(N);
+
+	constexpr size_t K_max = 8;
+	static_assert(K <= K_max, "No FFT twiddle factors for K > 8");
+	static constexpr std::array<std::complex<float>, K_max> wp_table { {
+		{ -2.0f,                        0.0f                     },
+		{ -1.0f,                       -1.0f                     },
+		{ -0.2928932188134524756f,     -0.7071067811865475244f   },
+		{ -0.076120467488713243872f,   -0.38268343236508977173f  },
+		{ -0.019214719596769550874f,   -0.19509032201612826785f  },
+		{ -0.0048152733278031137552f,  -0.098017140329560601994f },
+		{ -0.0012045437948276072852f,  -0.049067674327418014255f },
+		{ -0.00030118130379577988423f, -0.024541228522912288032f },
+	} };
 
 	/* Provide data to this function, pre-swapped. */
-	for(size_t mmax = 1; N > mmax; mmax <<= 1) {
-		const float theta = -pi / mmax;
-		const float wtemp = sin_f32(0.5f * theta);
-		const T wp {
-			-2.0f * wtemp * wtemp,
-			sin_f32(theta)
-		};
+	for(size_t k = 0; k < log_2(N); k++) {
+		const size_t mmax = 1 << k;
+		const auto wp = wp_table[k];
 		T w { 1.0f, 0.0f };
 		for(size_t m = 0; m < mmax; ++m) {
 			for(size_t i = m; i < N; i += mmax * 2) {

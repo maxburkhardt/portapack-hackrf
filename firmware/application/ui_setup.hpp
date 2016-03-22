@@ -41,9 +41,6 @@ struct SetDateTimeModel {
 
 class SetDateTimeView : public View {
 public:
-	std::function<void(SetDateTimeModel)> on_ok;
-	std::function<void()> on_cancel;
-
 	SetDateTimeView(NavigationView& nav);
 
 	void focus() override;
@@ -128,7 +125,7 @@ private:
 		"Cancel",
 	};
 
-	void form_init(const SetDateTimeModel model);
+	void form_init(const SetDateTimeModel& model);
 	SetDateTimeModel form_collect();
 };
 
@@ -138,9 +135,6 @@ struct SetFrequencyCorrectionModel {
 
 class SetFrequencyCorrectionView : public View {
 public:
-	std::function<void(SetFrequencyCorrectionModel)> on_ok;
-	std::function<void()> on_cancel;
-
 	SetFrequencyCorrectionView(NavigationView& nav);
 
 	void focus() override;
@@ -172,8 +166,55 @@ private:
 		"Cancel",
 	};
 
-	void form_init(const SetFrequencyCorrectionModel model);
+	void form_init(const SetFrequencyCorrectionModel& model);
 	SetFrequencyCorrectionModel form_collect();
+};
+
+class AntennaBiasSetupView : public View {
+public:
+	AntennaBiasSetupView(NavigationView& nav);
+
+	void focus() override;
+
+private:
+	Text text_title {
+		{ 5 * 8, 3 * 16, 20 * 8, 16 },
+		"Antenna Bias Voltage"
+	};
+
+	Text text_description_1 {
+		{ 24, 6 * 16, 24 * 8, 16 },
+		"CAUTION: Ensure that all"
+	};
+
+	Text text_description_2 {
+		{ 28, 7 * 16, 23 * 8, 16 },
+		"devices attached to the"
+	};
+
+	Text text_description_3 {
+		{  8, 8 * 16, 28 * 8, 16 },
+		"antenna connector can accept"
+	};
+
+	Text text_description_4 {
+		{ 68, 9 * 16, 13 * 8, 16 },
+		"a DC voltage!"
+	};
+
+	OptionsField options_bias {
+		{ 100, 12 * 16 },
+		5,
+		{
+			{ " Off ", 0 },
+			{ " On  ", 1 },
+		}
+	};
+
+	Button button_done {
+		{ 72, 15 * 16, 96, 24 },
+		"Done"
+	};
 };
 
 class AboutView : public View {

@@ -22,11 +22,11 @@
 #include "radio.hpp"
 
 #include "rf_path.hpp"
+
+#include "rffc507x.hpp"
 #include "max2837.hpp"
 #include "max5864.hpp"
 #include "baseband_cpld.hpp"
-#include "baseband_sgpio.hpp"
-#include "portapack_shared_memory.hpp"
 
 #include "tuning.hpp"
 
@@ -88,10 +88,9 @@ static spi::arbiter::Target ssp1_target_max5864 {
 
 static rf::path::Path rf_path;
 rffc507x::RFFC507x first_if;
-static max2837::MAX2837 second_if { ssp1_target_max2837 };
+max2837::MAX2837 second_if { ssp1_target_max2837 };
 static max5864::MAX5864 baseband_codec { ssp1_target_max5864 };
 static baseband::CPLD baseband_cpld;
-static baseband::SGPIO baseband_sgpio;
 
 static rf::Direction direction { rf::Direction::Receive };
 
@@ -101,7 +100,6 @@ void init() {
 	second_if.init();
 	baseband_codec.init();
 	baseband_cpld.init();
-	baseband_sgpio.init();
 }
 
 void set_direction(const rf::Direction new_direction) {
@@ -113,7 +111,6 @@ void set_direction(const rf::Direction new_direction) {
 	rf_path.set_direction(direction);
 
 	baseband_codec.set_mode((direction == rf::Direction::Transmit) ? max5864::Mode::Transmit : max5864::Mode::Receive);
-	baseband_sgpio.configure((direction == rf::Direction::Transmit) ? baseband::Direction::Transmit : baseband::Direction::Receive);
 }
 
 bool set_tuning_frequency(const rf::Frequency frequency) {
@@ -153,24 +150,64 @@ void set_baseband_filter_bandwidth(const uint32_t bandwidth_minimum) {
 	second_if.set_lpf_rf_bandwidth(bandwidth_minimum);
 }
 
+void set_baseband_rate(const uint32_t rate) {
+	portapack::clock_manager.set_sampling_frequency(rate);
+}
+
 void set_baseband_decimation_by(const size_t n) {
 	baseband_cpld.set_decimation_by(n);
 }
 
-void streaming_enable() {
-	baseband_sgpio.streaming_enable();
-}
-
-void streaming_disable() {
-	baseband_sgpio.streaming_disable();
+void set_antenna_bias(const bool on) {
+	/* Pull MOSFET gate low to turn on antenna bias. */
+	first_if.set_gpo1(on ? 0 : 1);
 }
 
 void disable() {
-	baseband_sgpio.streaming_disable();
+	set_antenna_bias(false);
 	baseband_codec.set_mode(max5864::Mode::Shutdown);
-	second_if.set_mode(max2837::Mode::Shutdown);
+	second_if.set_mode(max2837::Mode::Standby);
 	first_if.disable();
 	set_rf_amp(false);
 }
+
+void enable(Configuration configuration) {
+	configure(configuration);
+}
+
+void configure(Configuration configuration) {
+	set_tuning_frequency(configuration.tuning_frequency);
+	set_rf_amp(configuration.rf_amp);
+	set_lna_gain(configuration.lna_gain);
+	set_vga_gain(configuration.vga_gain);
+	set_baseband_rate(configuration.baseband_rate);
+	set_baseband_decimation_by(configuration.baseband_decimation);
+	set_baseband_filter_bandwidth(configuration.baseband_filter_bandwidth);
+	set_direction(configuration.direction);
+}
+
+namespace debug {
+
+namespace first_if {
+
+uint32_t register_read(const size_t register_number) {
+	return radio::first_if.read(register_number);
+}
+
+} /* namespace first_if */
+
+namespace second_if {
+
+uint32_t register_read(const size_t register_number) {
+	return radio::second_if.read(register_number);
+}
+
+uint8_t temp_sense() {
+	return radio::second_if.temp_sense() & 0x1f;
+}
+
+} /* namespace second_if */
+
+} /* namespace debug */
 
 } /* namespace radio */

@@ -30,39 +30,142 @@
 #include "ui_rssi.hpp"
 #include "ui_channel.hpp"
 #include "ui_audio.hpp"
+#include "ui_sd_card_status_view.hpp"
 
 #include <vector>
+#include <utility>
 
 namespace ui {
 
+static constexpr uint8_t bitmap_sleep_data[] = {
+	0x00, 0x00,
+	0x00, 0x00,
+	0x00, 0x04,
+	0x00, 0x08,
+	0x00, 0x18,
+	0x00, 0x18,
+	0x00, 0x38,
+	0x00, 0x3c,
+	0x00, 0x3c,
+	0x00, 0x3e,
+	0x84, 0x1f,
+	0xf8, 0x1f,
+	0xf0, 0x0f,
+	0xc0, 0x03,
+	0x00, 0x00,
+	0x00, 0x00,
+};
+
+static constexpr Bitmap bitmap_sleep {
+	{ 16, 16 }, bitmap_sleep_data
+};
+
+static constexpr uint8_t bitmap_camera_data[] = {
+	0x00, 0x00,
+	0x00, 0x00,
+	0x00, 0x00,
+	0xcc, 0x03,
+	0xe8, 0x07,
+	0xfc, 0x3f,
+	0x3c, 0x3c,
+	0x9c, 0x39,
+	0xdc, 0x3b,
+	0xdc, 0x3b,
+	0x9c, 0x39,
+	0x3c, 0x3c,
+	0xfc, 0x3f,
+	0x00, 0x00,
+	0x00, 0x00,
+	0x00, 0x00,
+};
+
+static constexpr Bitmap bitmap_camera {
+	{ 16, 16 }, bitmap_camera_data
+};
+
 class SystemStatusView : public View {
 public:
+	std::function<void(void)> on_back;
+
 	SystemStatusView();
 
+	void set_back_enabled(bool new_value);
+	void set_title(const std::string new_value);
+
 private:
-	Text portapack {
-		{ 0, 0, 15 * 8, 1 * 16 },
-		"Max's PortaPack",
+	static constexpr auto default_title = "Max's PortaPack";
+	static constexpr auto back_text_enabled = " < ";
+	static constexpr auto back_text_disabled = " * ";
+
+	Button button_back {
+		{ 0 * 8, 0 * 16, 3 * 8, 16 },
+		back_text_disabled,
 	};
+
+	Text title {
+		{ 3 * 8, 0, 16 * 8, 1 * 16 },
+		default_title,
+	};
+
+	ImageButton button_camera {
+		{ 22 * 8, 0, 2 * 8, 1 * 16 },
+		&bitmap_camera,
+		Color::white(),
+		Color::black()
+	};
+
+	ImageButton button_sleep {
+		{ 25 * 8, 0, 2 * 8, 1 * 16 },
+		&bitmap_sleep,
+		Color::white(),
+		Color::black()
+	};
+
+	SDCardStatusView sd_card_status_view {
+		{ 28 * 8, 0 * 16,  2 * 8, 1 * 16 }
+	};
+
+	void on_camera();
 };
 
 class NavigationView : public View {
 public:
-	NavigationView();
+	std::function<void(const View&)> on_view_changed;
+
+	NavigationView() { }
 
 	NavigationView(const NavigationView&) = delete;
 	NavigationView(NavigationView&&) = delete;
 
-	void push(View* new_view);
+	bool is_top() const;
+
+	template<class T, class... Args>
+	T* push(Args&&... args) {
+		return reinterpret_cast<T*>(push_view(std::unique_ptr<View>(new T(*this, std::forward<Args>(args)...))));
+	}
+
 	void pop();
 
 	void focus() override;
 
 private:
-	std::vector<View*> view_stack;
+	std::vector<std::unique_ptr<View>> view_stack;
 
 	Widget* view() const;
-	void set_view(Widget* const new_view);
+
+	void free_view();
+	void update_view();
+	View* push_view(std::unique_ptr<View> new_view);
+};
+
+class TranspondersMenuView : public MenuView {
+public:
+	TranspondersMenuView(NavigationView& nav);
+};
+
+class ReceiverMenuView : public MenuView {
+public:
+	ReceiverMenuView(NavigationView& nav);
 };
 
 class SystemMenuView : public MenuView {

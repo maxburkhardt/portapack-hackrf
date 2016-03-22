@@ -21,46 +21,14 @@
 
 #include "ui_receiver.hpp"
 
-#include "ui_spectrum.hpp"
-#include "ui_console.hpp"
-
 #include "portapack.hpp"
 using namespace portapack;
 
-#include "ais_baseband.hpp"
+#include "string_format.hpp"
 
-#include "ff.h"
+#include "max2837.hpp"
 
 namespace ui {
-
-/* BasebandBandwidthField ************************************************/
-
-BasebandBandwidthField::BasebandBandwidthField(
-	Point parent_pos
-) : OptionsField {
-		parent_pos,
-		4,
-		{
-			{ " 1M8",  1750000 },
-			{ " 2M5",  2500000 },
-			{ " 3M5",  3500000 },
-			{ " 5M ",  5000000 },
-			{ " 5M5",  5500000 },
-			{ " 6M ",  6000000 },
-			{ " 7M ",  7000000 },
-			{ " 8M ",  8000000 },
-			{ " 9M ",  9000000 },
-			{ "10M ", 10000000 },
-			{ "12M ", 12000000 },
-			{ "14M ", 14000000 },
-			{ "15M ", 15000000 },
-			{ "20M ", 20000000 },
-			{ "24M ", 24000000 },
-			{ "28M ", 28000000 },
-		}
-	}
-{
-}
 
 /* FrequencyField ********************************************************/
 
@@ -70,7 +38,7 @@ FrequencyField::FrequencyField(
 	length_ { 11 },
 	range(rf::tuning_range)
 {
-	flags.focusable = true;
+	set_focusable(true);
 }
 
 rf::Frequency FrequencyField::value() const {
@@ -126,25 +94,7 @@ bool FrequencyField::on_key(const ui::KeyEvent event) {
 	}
 	return false;
 }
-/*
-bool FrequencyField::on_key(const ui::KeyEvent event) override {
-	if( event == ui::KeyEvent::Select ) {
 
-		// NOTE: For testing sampling rate / decimation combinations
-		turbo = !turbo;
-		if( turbo ) {
-			clock_manager.set_sampling_frequency(18432000);
-			radio::set_baseband_decimation_by(6);
-		} else {
-			clock_manager.set_sampling_frequency(12288000);
-			radio::set_baseband_decimation_by(4);
-		}
-		return true;
-	}
-
-	return false;
-}
-*/
 bool FrequencyField::on_encoder(const EncoderEvent delta) {
 	set_value(value() + (delta * step));
 	return true;
@@ -164,13 +114,7 @@ void FrequencyField::on_focus() {
 }
 
 rf::Frequency FrequencyField::clamp_value(rf::Frequency value) {
-	if( value > range.max ) {
-		value = range.max;
-	}
-	if( value < range.min ) {
-		value = range.min;
-	}
-	return value;
+	return range.clip(value);
 }
 
 /* FrequencyKeypadView ***************************************************/
@@ -187,7 +131,7 @@ FrequencyKeypadView::FrequencyKeypadView(
 
 	const char* const key_caps = "123456789<0.";
 
-	size_t n = 0;
+	int n = 0;
 	for(auto& button : buttons) {
 		add_child(&button);
 		const std::string label {
@@ -195,8 +139,8 @@ FrequencyKeypadView::FrequencyKeypadView(
 		};
 		button.on_select = button_fn;
 		button.set_parent_rect({
-			static_cast<Coord>((n % 3) * button_w),
-			static_cast<Coord>((n / 3) * button_h + button_h),
+			(n % 3) * button_w,
+			(n / 3) * button_h + button_h,
 			button_w, button_h
 		});
 		button.set_text(label);
@@ -300,7 +244,6 @@ FrequencyOptionsView::FrequencyOptionsView(
 	add_children({ {
 		&text_step,
 		&options_step,
-		&text_correction,
 		&field_ppm,
 		&text_ppm,
 	} });
@@ -338,19 +281,11 @@ RadioGainOptionsView::RadioGainOptionsView(
 	add_children({ {
 		&label_rf_amp,
 		&field_rf_amp,
-		//&label_agc,
-		//&field_agc
 	} });
 
 	field_rf_amp.on_change = [this](int32_t v) {
 		this->on_rf_amp_changed(v);
 	};
-	/*
-	field_agc.set_value(receiver_model.agc());
-	field_agc.on_change = [this](int32_t v) {
-		this->on_agc_changed(v);
-	};
-	*/
 }
 
 void RadioGainOptionsView::set_rf_amp(int32_t v_db) {
@@ -362,19 +297,14 @@ void RadioGainOptionsView::on_rf_amp_changed(bool enable) {
 		on_change_rf_amp(enable);
 	}
 }
-/*
-void RadioGainOptionsView::on_agc_changed(bool v) {
-	receiver_model.set_agc(v);
-}
-*/
 
 /* LNAGainField **********************************************************/
 
 LNAGainField::LNAGainField(
 	Point parent_pos
 ) : NumberField {
-		{ parent_pos }, 2,
-		{ max2837::lna::gain_db_min, max2837::lna::gain_db_max },
+		parent_pos, 2,
+		{ max2837::lna::gain_db_range.minimum, max2837::lna::gain_db_range.maximum },
 		max2837::lna::gain_db_step,
 		' ',
 	}
@@ -387,330 +317,5 @@ void LNAGainField::on_focus() {
 		on_show_options();
 	}
 }
-
-/* ReceiverView **********************************************************/
-
-ReceiverView::ReceiverView(
-	NavigationView& nav,
-	ReceiverModel& receiver_model
-) : receiver_model(receiver_model)
-{
-	add_children({ {
-		&rssi,
-		&channel,
-		&audio,
-		&button_done,
-		&field_frequency,
-		&field_lna,
-		//&options_baseband_bandwidth,
-		&field_vga,
-		&options_modulation,
-		//&options_baseband_oversampling,
-		&field_volume,
-		&view_frequency_options,
-		&view_rf_gain_options,
-	} });
-
-	button_done.on_select = [&nav](Button&){
-		nav.pop();
-	};
-
-	field_frequency.set_value(receiver_model.tuning_frequency());
-	field_frequency.set_step(receiver_model.frequency_step());
-	field_frequency.on_change = [this](rf::Frequency f) {
-		this->on_tuning_frequency_changed(f);
-	};
-	field_frequency.on_edit = [this, &nav]() {
-		// TODO: Provide separate modal method/scheme?
-		auto new_view = new FrequencyKeypadView { nav, this->receiver_model.tuning_frequency() };
-		new_view->on_changed = [this](rf::Frequency f) {
-			this->on_tuning_frequency_changed(f);
-			this->field_frequency.set_value(f);
-		};
-		nav.push(new_view);
-	};
-	field_frequency.on_show_options = [this]() {
-		this->on_show_options_frequency();
-	};
-
-	field_lna.set_value(receiver_model.lna());
-	field_lna.on_change = [this](int32_t v) {
-		this->on_lna_changed(v);
-	};
-	field_lna.on_show_options = [this]() {
-		this->on_show_options_rf_gain();
-	};
-	/*
-	options_baseband_bandwidth.set_by_value(receiver_model.baseband_bandwidth());
-	options_baseband_bandwidth.on_change = [this](size_t n, OptionsField::value_t v) {
-		(void)n;
-		this->on_baseband_bandwidth_changed(v);
-	};
-	*/
-	field_vga.set_value(receiver_model.vga());
-	field_vga.on_change = [this](int32_t v_db) {
-		this->on_vga_changed(v_db);
-	};
-
-	options_modulation.set_by_value(receiver_model.modulation());
-	options_modulation.on_change = [this](size_t n, OptionsField::value_t v) {
-		(void)n;
-		this->on_modulation_changed(v);
-	};
-/*
-	options_baseband_oversampling.set_by_value(receiver_model.baseband_oversampling());
-	options_baseband_oversampling.on_change = [this](size_t n, OptionsField::value_t v) {
-		(void)n;
-		this->on_baseband_oversampling_changed(v);
-	};
-*/
-	field_volume.set_value((receiver_model.headphone_volume() - wolfson::wm8731::headphone_gain_range.max).decibel() + 99);
-	field_volume.on_change = [this](int32_t v) {
-		this->on_headphone_volume_changed(v);
-	};
-
-	view_frequency_options.hidden(true);
-	view_frequency_options.set_step(receiver_model.frequency_step());
-	view_frequency_options.on_change_step = [this](rf::Frequency f) {
-		this->on_frequency_step_changed(f);
-	};
-	view_frequency_options.set_reference_ppm_correction(receiver_model.reference_ppm_correction());
-	view_frequency_options.on_change_reference_ppm_correction = [this](int32_t v) {
-		this->on_reference_ppm_correction_changed(v);
-	};
-
-	view_rf_gain_options.hidden(true);
-	view_rf_gain_options.set_rf_amp(receiver_model.rf_amp());
-	view_rf_gain_options.on_change_rf_amp = [this](bool enable) {
-		this->on_rf_amp_changed(enable);
-	};
-
-	receiver_model.enable();
-}
-
-ReceiverView::~ReceiverView() {
-
-	// TODO: Manipulating audio codec here, and in ui_receiver.cpp. Good to do
-	// both?
-	audio_codec.headphone_mute();
-
-	receiver_model.disable();
-}
-
-void ReceiverView::on_show() {
-	auto& message_map = context().message_map();
-	message_map.register_handler(Message::ID::AISPacket,
-		[this](Message* const p) {
-			const auto message = static_cast<const AISPacketMessage*>(p);
-			this->on_packet_ais(*message);
-		}
-	);
-	message_map.register_handler(Message::ID::TPMSPacket,
-		[this](Message* const p) {
-			const auto message = static_cast<const TPMSPacketMessage*>(p);
-			this->on_packet_tpms(*message);
-		}
-	);
-	message_map.register_handler(Message::ID::SDCardStatus,
-		[this](Message* const p) {
-			const auto message = static_cast<const SDCardStatusMessage*>(p);
-			this->on_sd_card_mounted(message->is_mounted);
-		}
-	);
-}
-
-void ReceiverView::on_hide() {
-	auto& message_map = context().message_map();
-	message_map.unregister_handler(Message::ID::SDCardStatus);
-	message_map.unregister_handler(Message::ID::TPMSPacket);
-	message_map.unregister_handler(Message::ID::AISPacket);
-}
-
-void ReceiverView::on_packet_ais(const AISPacketMessage& message) {
-	const auto result = baseband::ais::packet_decode(message.packet.payload, message.packet.bits_received);
-
-	auto console = reinterpret_cast<Console*>(widget_content.get());
-	if( result.first == "OK" ) {
-		console->writeln(result.second);
-	}
-}
-
-static FIL fil_tpms;
-
-void ReceiverView::on_packet_tpms(const TPMSPacketMessage& message) {
-	auto payload = message.packet.payload;
-	auto payload_length = message.packet.bits_received;
-
-	std::string hex_data;
-	std::string hex_error;
-	uint8_t byte_data = 0;
-	uint8_t byte_error = 0;
-	for(size_t i=0; i<payload_length; i+=2) {
-		const auto bit_data = payload[i+1];
-		const auto bit_error = (payload[i+0] == payload[i+1]);
-
-		byte_data <<= 1;
-		byte_data |= bit_data ? 1 : 0;
-
-		byte_error <<= 1;
-		byte_error |= bit_error ? 1 : 0;
-
-		if( ((i >> 1) & 7) == 7 ) {
-			hex_data += to_string_hex(byte_data, 2);
-			hex_error += to_string_hex(byte_error, 2);
-		}
-	}
-
-	auto console = reinterpret_cast<Console*>(widget_content.get());
-	console->writeln(hex_data.substr(0, 240 / 8));
-
-	if( !f_error(&fil_tpms) ) {
-		rtc::RTC datetime;
-		rtcGetTime(&RTCD1, &datetime);
-		std::string timestamp = 
-			to_string_dec_uint(datetime.year(), 4) +
-			to_string_dec_uint(datetime.month(), 2, '0') +
-			to_string_dec_uint(datetime.day(), 2, '0') +
-			to_string_dec_uint(datetime.hour(), 2, '0') +
-			to_string_dec_uint(datetime.minute(), 2, '0') +
-			to_string_dec_uint(datetime.second(), 2, '0');
-
-		const auto tuning_frequency = receiver_model.tuning_frequency();
-		// TODO: function doesn't take uint64_t, so when >= 1<<32, weirdness will ensue!
-		const auto tuning_frequency_str = to_string_dec_uint(tuning_frequency, 10);
-
-		std::string log = timestamp + " " + tuning_frequency_str + " FSK 38.4 19.2 " + hex_data + "/" + hex_error + "\r\n";
-		f_puts(log.c_str(), &fil_tpms);
-		f_sync(&fil_tpms);
-	}
-}
-
-void ReceiverView::on_sd_card_mounted(const bool is_mounted) {
-	if( is_mounted ) {
-		const auto open_result = f_open(&fil_tpms, "tpms.txt", FA_WRITE | FA_OPEN_ALWAYS);
-		if( open_result == FR_OK ) {
-			const auto fil_size = f_size(&fil_tpms);
-			const auto seek_result = f_lseek(&fil_tpms, fil_size);
-			if( seek_result != FR_OK ) {
-				f_close(&fil_tpms);
-			}
-		} else {
-			// TODO: Error, indicate somehow.
-		}
-	}
-}
-
-void ReceiverView::focus() {
-	button_done.focus();
-}
-
-void ReceiverView::on_tuning_frequency_changed(rf::Frequency f) {
-	receiver_model.set_tuning_frequency(f);
-}
-
-void ReceiverView::on_baseband_bandwidth_changed(uint32_t bandwidth_hz) {
-	receiver_model.set_baseband_bandwidth(bandwidth_hz);
-}
-
-void ReceiverView::on_rf_amp_changed(bool v) {
-	receiver_model.set_rf_amp(v);
-}
-
-void ReceiverView::on_lna_changed(int32_t v_db) {
-	receiver_model.set_lna(v_db);
-}
-
-void ReceiverView::on_vga_changed(int32_t v_db) {
-	receiver_model.set_vga(v_db);
-}
-
-void ReceiverView::on_modulation_changed(int32_t modulation) {
-	/* TODO: This is TERRIBLE!!! */
-	switch(modulation) {
-	case 3:
-	case 5:
-		receiver_model.set_baseband_configuration({
-			.mode = modulation,
-			.sampling_rate = 2457600,
-			.decimation_factor = 4,
-		});
-		receiver_model.set_baseband_bandwidth(1750000);
-		break;
-
-	case 4:
-		receiver_model.set_baseband_configuration({
-			.mode = modulation,
-			.sampling_rate = 20000000,
-			.decimation_factor = 1,
-		});
-		receiver_model.set_baseband_bandwidth(12000000);
-		break;
-
-	default:
-		receiver_model.set_baseband_configuration({
-			.mode = modulation,
-			.sampling_rate = 3072000,
-			.decimation_factor = 4,
-		});
-		receiver_model.set_baseband_bandwidth(1750000);
-		break;
-	}
-
-	remove_child(widget_content.get());
-	widget_content.reset();
-	
-	switch(modulation) {
-	case 3:
-	case 5:
-		widget_content = std::make_unique<Console>();
-		add_child(widget_content.get());
-		break;
-
-	default:
-		widget_content = std::make_unique<spectrum::WaterfallWidget>();
-		add_child(widget_content.get());
-		break;
-	}
-	
-	if( widget_content ) {
-		const ui::Dim header_height = 3 * 16;
-		const ui::Rect rect { 0, header_height, parent_rect.width(), static_cast<ui::Dim>(parent_rect.height() - header_height) };
-		widget_content->set_parent_rect(rect);
-	}
-}
-
-void ReceiverView::on_show_options_frequency() {
-	view_rf_gain_options.hidden(true);
-	field_lna.set_style(nullptr);
-
-	view_frequency_options.hidden(false);
-	field_frequency.set_style(&view_frequency_options.style());
-}
-
-void ReceiverView::on_show_options_rf_gain() {
-	view_frequency_options.hidden(true);
-	field_frequency.set_style(nullptr);
-
-	view_rf_gain_options.hidden(false);
-	field_lna.set_style(&view_frequency_options.style());
-}
-
-void ReceiverView::on_frequency_step_changed(rf::Frequency f) {
-	receiver_model.set_frequency_step(f);
-	field_frequency.set_step(f);
-}
-
-void ReceiverView::on_reference_ppm_correction_changed(int32_t v) {
-	receiver_model.set_reference_ppm_correction(v);
-}
-
-void ReceiverView::on_headphone_volume_changed(int32_t v) {
-	const auto new_volume = volume_t::decibel(v - 99) + wolfson::wm8731::headphone_gain_range.max;
-	receiver_model.set_headphone_volume(new_volume);
-}
-
-// void ReceiverView::on_baseband_oversampling_changed(int32_t v) {
-// 	receiver_model.set_baseband_oversampling(v);
-// }
 
 } /* namespace ui */

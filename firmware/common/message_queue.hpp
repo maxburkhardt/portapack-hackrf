@@ -32,10 +32,13 @@ using namespace lpc43xx;
 
 #include <ch.h>
 
-template<size_t K>
 class MessageQueue {
 public:
-	MessageQueue() {
+	MessageQueue(
+		uint8_t* const data,
+		size_t k
+	) : fifo { data, k }
+	{
 		chMtxInit(&mutex_write);
 	}
 
@@ -45,6 +48,25 @@ public:
 		static_assert(std::is_base_of<Message, T>::value, "type is not based on Message");
 
 		return push(&message, sizeof(message));
+	}
+
+	template<typename T>
+	bool push_and_wait(const T& message) {
+		const bool result = push(message);
+		if( result ) {
+			// TODO: More graceful method of waiting for empty? Maybe sleep for a bit?
+			while( !is_empty() );
+		}
+		return result;
+	}
+
+	Message* peek(std::array<uint8_t, Message::MAX_SIZE>& buf) {
+		Message* const p = reinterpret_cast<Message*>(buf.data());
+		return fifo.peek_r(buf.data(), buf.size()) ? p : nullptr;
+	}
+
+	bool skip() {
+		return fifo.skip();
 	}
 
 	Message* pop(std::array<uint8_t, Message::MAX_SIZE>& buf) {
@@ -61,7 +83,7 @@ public:
 	}
 
 private:
-	FIFO<uint8_t, K> fifo;
+	FIFO<uint8_t> fifo;
 	Mutex mutex_write;
 
 	bool push(const void* const buf, const size_t len) {

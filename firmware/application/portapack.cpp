@@ -27,12 +27,10 @@
 #include "hackrf_gpio.hpp"
 using namespace hackrf::one;
 
-#include "si5351.hpp"
 #include "clock_manager.hpp"
 
-#include "i2c_pp.hpp"
-
 #include "touch_adc.hpp"
+#include "audio.hpp"
 
 namespace portapack {
 
@@ -52,8 +50,6 @@ I2C i2c0(&I2CD0);
 SPI ssp0(&SPID1);
 SPI ssp1(&SPID2);
 
-wolfson::wm8731::WM8731 audio_codec { i2c0, portapack::wm8731_i2c_address };
-
 si5351::Si5351 clock_generator {
 	i2c0, hackrf::one::si5351_i2c_address
 };
@@ -62,9 +58,9 @@ ClockManager clock_manager {
 	i2c0, clock_generator
 };
 
-ReceiverModel receiver_model {
-	clock_manager
-};
+ReceiverModel receiver_model;
+
+TemperatureLogger temperature_logger;
 
 class Power {
 public:
@@ -131,9 +127,8 @@ void init() {
 	clock_manager.set_reference_ppb(persistent_memory::correction_ppb());
 	clock_manager.run_at_full_speed();
 
-	clock_manager.start_audio_pll();
-	audio_codec.init();
-
+	audio::init();
+	
 	clock_manager.enable_first_if_clock();
 	clock_manager.enable_second_if_clock();
 	clock_manager.enable_codec_clocks();
@@ -146,7 +141,7 @@ void shutdown() {
 	display.shutdown();
 	
 	radio::disable();
-	audio_codec.reset();
+	audio::shutdown();
 	clock_manager.shutdown();
 
 	power.shutdown();

@@ -29,8 +29,6 @@
 
 #include "utility.hpp"
 
-#include "message.hpp"
-
 #include <memory>
 #include <vector>
 #include <string>
@@ -41,25 +39,14 @@ void dirty_set();
 void dirty_clear();
 bool is_dirty();
 
-// TODO: Move these somewhere else!
-// TODO: Allow l=0 to not fill/justify? Already using this way in ui_spectrum.hpp...
-std::string to_string_dec_uint(const uint32_t n, const int32_t l = 0, const char fill = 0);
-std::string to_string_dec_int(const int32_t n, const int32_t l = 0, const char fill = 0);
-std::string to_string_hex(const uint32_t n, const int32_t l = 0);
-
 class Context {
 public:
 	FocusManager& focus_manager() {
 		return focus_manager_;
 	}
 
-	MessageHandlerMap& message_map() {
-		return message_map_;
-	}
-
 private:
 	FocusManager focus_manager_;
-	MessageHandlerMap message_map_;
 };
 
 class Widget {
@@ -96,9 +83,8 @@ public:
 	virtual void blur();
 	virtual void on_blur();
 	bool focusable() const;
+	void set_focusable(const bool value);
 	bool has_focus();
-	virtual Widget* last_child_focus() const;
-	virtual void set_last_child_focus(Widget* const child);
 
 	virtual void paint(Painter& painter) = 0;
 
@@ -108,7 +94,7 @@ public:
 	virtual bool on_key(const KeyEvent event);
 	virtual bool on_encoder(const EncoderEvent event);
 	virtual bool on_touch(const TouchEvent event);
-	virtual const std::vector<Widget*> children() const;
+	virtual const std::vector<Widget*>& children() const;
 
 	virtual Context& context() const;
 
@@ -123,7 +109,13 @@ public:
 
 	void visible(bool v);
 
+	bool highlighted() const;
+	void set_highlighted(const bool value);
+
 protected:
+	void dirty_overlapping_children_in_rect(const Rect& child_rect);
+
+private:
 	/* Widget rectangle relative to parent pos(). */
 	Rect parent_rect;
 	const Style* style_ { nullptr };
@@ -144,6 +136,8 @@ protected:
 		.highlighted = false,
 		.visible = false,
 	};
+
+	static const std::vector<Widget*> no_children;
 };
 
 class View : public Widget {
@@ -157,33 +151,24 @@ public:
 
 	// TODO: ~View() should on_hide() all children?
 
-	void set_parent_rect(const Rect new_parent_rect) override;
-
 	void paint(Painter& painter) override;
 
 	void add_child(Widget* const widget);
 	void add_children(const std::vector<Widget*>& children);
 	void remove_child(Widget* const widget);
-	const std::vector<Widget*> children() const override;
+	const std::vector<Widget*>& children() const override;
 
-	virtual Widget* initial_focus();
+	virtual std::string title() const;
 
 protected:
 	std::vector<Widget*> children_;
-	Rect dirty_screen_rect;
 
 	void invalidate_child(Widget* const widget);
 };
 
 class Rectangle : public Widget {
 public:
-	constexpr Rectangle(
-		const Rect parent_rect,
-		const Color c
-	) : Widget { parent_rect },
-		color { c }
-	{
-	}
+	Rectangle(Rect parent_rect, Color c);
 
 	void paint(Painter& painter) override;
 
@@ -199,19 +184,8 @@ public:
 	) : text { "" } {
 	}
 
-	Text(
-		Rect parent_rect,
-		std::string text
-	) : Widget { parent_rect },
-		text { text }
-	{
-	}
-
-	Text(
-		Rect parent_rect
-	) : Text { parent_rect, { } }
-	{
-	}
+	Text(Rect parent_rect, std::string text);
+	Text(Rect parent_rect);
 
 	void set(const std::string value);
 
@@ -225,14 +199,7 @@ class Button : public Widget {
 public:
 	std::function<void(Button&)> on_select;
 
-	Button(
-		Rect parent_rect,
-		std::string text
-	) : Widget { parent_rect },
-		text_ { text }
-	{
-		flags.focusable = true;
-	}
+	Button(Rect parent_rect, std::string text);
 
 	Button(
 	) : Button { { }, { } }
@@ -251,6 +218,43 @@ private:
 	std::string text_;
 };
 
+class Image : public Widget {
+public:
+	Image();
+	Image(
+		const Rect parent_rect,
+		const Bitmap* bitmap,
+		const Color foreground,
+		const Color background
+	);
+
+	void set_bitmap(const Bitmap* bitmap);
+	void set_foreground(const Color color);
+	void set_background(const Color color);
+
+	void paint(Painter& painter) override;
+
+private:
+	const Bitmap* bitmap_;
+	Color foreground_;
+	Color background_;
+};
+
+class ImageButton : public Image {
+public:
+	std::function<void(ImageButton&)> on_select;
+
+	ImageButton(
+		const Rect parent_rect,
+		const Bitmap* bitmap,
+		const Color foreground,
+		const Color background
+	);
+
+	bool on_key(const KeyEvent key) override;
+	bool on_touch(const TouchEvent event) override;
+};
+
 class OptionsField : public Widget {
 public:
 	using name_t = std::string;
@@ -259,17 +263,9 @@ public:
 	using options_t = std::vector<option_t>;
 
 	std::function<void(size_t, value_t)> on_change;
+	std::function<void(void)> on_show_options;
 
-	OptionsField(
-		Point parent_pos,
-		size_t length,
-		options_t options
-	) : Widget { { parent_pos, { static_cast<ui::Dim>(8 * length), 16 } } },
-		length_ { length },
-		options { options }
-	{
-		flags.focusable = true;
-	}
+	OptionsField(Point parent_pos, size_t length, options_t options);
 
 	size_t selected_index() const;
 	void set_selected_index(const size_t new_index);
@@ -278,6 +274,7 @@ public:
 
 	void paint(Painter& painter) override;
 
+	void on_focus() override;
 	bool on_encoder(const EncoderEvent delta) override;
 	bool on_touch(const TouchEvent event) override;
 
@@ -293,20 +290,7 @@ public:
 
 	using range_t = std::pair<int32_t, int32_t>;
 
-	NumberField(
-		Point parent_pos,
-		size_t length,
-		range_t range,
-		int32_t step,
-		char fill_char
-	) : Widget { { parent_pos, { static_cast<ui::Dim>(8 * length), 16 } } },
-		range { range },
-		step { step },
-		length_ { length },
-		fill_char { fill_char }
-	{
-		flags.focusable = true;
-	}
+	NumberField(Point parent_pos, size_t length, range_t range, int32_t step, char fill_char);
 
 	NumberField(const NumberField&) = delete;
 	NumberField(NumberField&&) = delete;

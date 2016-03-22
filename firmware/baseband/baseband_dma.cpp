@@ -32,6 +32,8 @@ using namespace lpc43xx;
 
 #include "portapack_dma.hpp"
 
+#include "thread_wait.hpp"
+
 namespace baseband {
 namespace dma {
 
@@ -99,26 +101,19 @@ constexpr size_t msg_count = transfers_per_buffer - 1;
 static std::array<gpdma::channel::LLI, transfers_per_buffer> lli_loop;
 static constexpr auto& gpdma_channel_sgpio = gpdma::channels[portapack::sgpio_gpdma_channel_number];
 
-//static Mailbox mailbox;
-//static std::array<msg_t, msg_count> messages;
-static Semaphore semaphore;
-
-static volatile const gpdma::channel::LLI* next_lli = nullptr;
+static ThreadWait thread_wait;
 
 static void transfer_complete() {
-	next_lli = gpdma_channel_sgpio.next_lli();
-	/* TODO: Is Mailbox the proper synchronization mechanism for this? */
-	//chMBPostI(&mailbox, 0);
-	chSemSignalI(&semaphore);
+	const auto next_lli_index = gpdma_channel_sgpio.next_lli() - &lli_loop[0];
+	thread_wait.wake_from_interrupt(next_lli_index);
 }
 
 static void dma_error() {
+	thread_wait.wake_from_interrupt(-1);
 	disable();
 }
 
 void init() {
-	//chMBInit(&mailbox, messages.data(), messages.size());
-	chSemInit(&semaphore, 0);
 	gpdma_channel_sgpio.set_handlers(transfer_complete, dma_error);
 
 	// LPC_GPDMA->SYNC |= (1 << gpdma_src_peripheral);
@@ -143,10 +138,6 @@ void configure(
 void enable(const baseband::Direction direction) {
 	const auto gpdma_config = config(direction);
 	gpdma_channel_sgpio.configure(lli_loop[0], gpdma_config);
-
-	//chMBReset(&mailbox);
-	chSemReset(&semaphore, 0);
-
 	gpdma_channel_sgpio.enable();
 }
 
@@ -155,24 +146,17 @@ bool is_enabled() {
 }
 
 void disable() {
-	gpdma_channel_sgpio.disable_force();
+	gpdma_channel_sgpio.disable();
 }
 
 baseband::buffer_t wait_for_rx_buffer() {
-	//msg_t msg;
-	//const auto status = chMBFetch(&mailbox, &msg, TIME_INFINITE);
-	const auto status = chSemWait(&semaphore);
-	if( status == RDY_OK ) {
-		const auto next = next_lli;
-		if( next ) {
-			const size_t next_index = next - &lli_loop[0];
-			const size_t free_index = (next_index + transfers_per_buffer - 2) & transfers_mask;
-			return { reinterpret_cast<sample_t*>(lli_loop[free_index].destaddr), transfer_samples };
-		} else {
-			return { nullptr, 0 };
-		}
+	const auto next_index = thread_wait.sleep();
+	
+	if( next_index >= 0 ) {
+		const size_t free_index = (next_index + transfers_per_buffer - 2) & transfers_mask;
+		return { reinterpret_cast<sample_t*>(lli_loop[free_index].destaddr), transfer_samples };
 	} else {
-		return { nullptr, 0 };
+		return { };
 	}
 }
 

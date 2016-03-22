@@ -124,32 +124,41 @@ CSRC = $(PORTSRC) \
 # setting.
 CPPSRC = main.cpp \
          message_queue.cpp \
+         event.cpp \
          event_m4.cpp \
-         irq_ipc_m4.cpp \
+         thread_wait.cpp \
          gpdma.cpp \
          baseband_dma.cpp \
+         baseband_sgpio.cpp \
          portapack_shared_memory.cpp \
+         baseband_thread.cpp \
          baseband_processor.cpp \
-         channel_decimator.cpp \
+         baseband_stats_collector.cpp \
          dsp_decimate.cpp \
          dsp_demodulate.cpp \
          matched_filter.cpp \
          proc_am_audio.cpp \
          proc_nfm_audio.cpp \
+         spectrum_collector.cpp \
          proc_wfm_audio.cpp \
          proc_ais.cpp \
          proc_wideband_spectrum.cpp \
          proc_tpms.cpp \
+         proc_ert.cpp \
          dsp_squelch.cpp \
          clock_recovery.cpp \
          packet_builder.cpp \
          dsp_fft.cpp \
          dsp_fir_taps.cpp \
+         dsp_iir.cpp \
          fxpt_atan2.cpp \
          rssi.cpp \
          rssi_dma.cpp \
-         audio.cpp \
+         rssi_thread.cpp \
+         audio_compressor.cpp \
+         audio_output.cpp \
          audio_dma.cpp \
+         audio_stats_collector.cpp \
          touch_dma.cpp \
          ../common/utility.cpp \
          ../common/chibios_cpp.cpp \

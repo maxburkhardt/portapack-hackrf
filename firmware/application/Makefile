@@ -118,15 +118,16 @@ CSRC = $(PORTSRC) \
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
 CPPSRC = main.cpp \
-         irq_ipc.cpp \
          irq_lcd_frame.cpp \
          irq_controls.cpp \
          irq_rtc.cpp \
          event.cpp \
+         event_m0.cpp \
          message_queue.cpp \
          hackrf_hal.cpp \
          portapack.cpp \
          portapack_shared_memory.cpp \
+         baseband_api.cpp \
          portapack_persistent_memory.cpp \
          portapack_io.cpp \
          i2c_pp.cpp \
@@ -136,7 +137,6 @@ CPPSRC = main.cpp \
          wm8731.cpp \
          radio.cpp \
          baseband_cpld.cpp \
-         baseband_sgpio.cpp \
          tuning.cpp \
          rf_path.cpp \
          rffc507x.cpp \
@@ -147,6 +147,7 @@ CPPSRC = main.cpp \
          touch.cpp \
          touch_adc.cpp \
          encoder.cpp \
+         audio.cpp \
          lcd_ili9341.cpp \
          ui.cpp \
          ui_text.cpp \
@@ -162,17 +163,32 @@ CPPSRC = main.cpp \
          ui_setup.cpp \
          ui_debug.cpp \
          ui_baseband_stats_view.cpp \
+         ui_sd_card_status_view.cpp \
          ui_console.cpp \
          ui_receiver.cpp \
          ui_spectrum.cpp \
+         recent_entries.cpp \
          receiver_model.cpp \
          spectrum_color_lut.cpp \
+         analog_audio_app.cpp \
          ais_baseband.cpp \
+         ../commom/ais_packet.cpp \
+         ais_app.cpp \
+         tpms_app.cpp \
+         ert_app.cpp \
+         ../common/ert_packet.cpp \
+         sd_card.cpp \
+         file.cpp \
+         log_file.cpp \
+         png_writer.cpp \
+         manchester.cpp \
+         string_format.cpp \
+         temperature_logger.cpp \
          ../common/utility.cpp \
          ../common/chibios_cpp.cpp \
          ../common/debug.cpp \
          ../common/gcc.cpp \
-         m4_startup.cpp \
+         core_control.cpp \
          cpld_max5.cpp \
          jtag.cpp \
          cpld_update.cpp \

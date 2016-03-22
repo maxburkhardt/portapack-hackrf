@@ -25,7 +25,6 @@
 #include <cstdint>
 #include <cstddef>
 
-#include "clock_manager.hpp"
 #include "message.hpp"
 #include "rf_path.hpp"
 #include "max2837.hpp"
@@ -33,11 +32,12 @@
 
 class ReceiverModel {
 public:
-	constexpr ReceiverModel(
-		ClockManager& clock_manager
-	) : clock_manager(clock_manager)
-	{
-	}
+	enum class Mode : int32_t {
+		AMAudio = 0,
+		NarrowbandFMAudio = 1,
+		WidebandFMAudio = 2,
+		SpectrumAnalysis = 4,
+	};
 
 	rf::Frequency tuning_frequency() const;
 	void set_tuning_frequency(rf::Frequency f);
@@ -45,8 +45,8 @@ public:
 	rf::Frequency frequency_step() const;
 	void set_frequency_step(rf::Frequency f);
 
-	int32_t reference_ppm_correction() const;
-	void set_reference_ppm_correction(int32_t v);
+	bool antenna_bias() const;
+	void set_antenna_bias(bool enabled);
 
 	bool rf_amp() const;
 	void set_rf_amp(bool enabled);
@@ -74,29 +74,48 @@ public:
 
 	void set_baseband_configuration(const BasebandConfiguration config);
 
+	size_t am_configuration() const;
+	void set_am_configuration(const size_t n);
+
+	size_t nbfm_configuration() const;
+	void set_nbfm_configuration(const size_t n);
+
+	size_t wfm_configuration() const;
+	void set_wfm_configuration(const size_t n);
+
 private:
 	rf::Frequency frequency_step_ { 25000 };
+	bool enabled_ { false };
 	bool rf_amp_ { false };
+	bool antenna_bias_ { false };
 	int32_t lna_gain_db_ { 32 };
 	uint32_t baseband_bandwidth_ { max2837::filter::bandwidth_minimum };
 	int32_t vga_gain_db_ { 32 };
 	BasebandConfiguration baseband_configuration {
 		.mode = 1,			/* TODO: Enum! */
 		.sampling_rate = 3072000,
-		.decimation_factor = 4,
+		.decimation_factor = 1,
 	};
+	size_t am_config_index = 0;
+	size_t nbfm_config_index = 0;
+	size_t wfm_config_index = 0;
 	volume_t headphone_volume_ { -43.0_dB };
-	ClockManager& clock_manager;
 
 	int32_t tuning_offset();
 
 	void update_tuning_frequency();
+	void update_antenna_bias();
 	void update_rf_amp();
 	void update_lna();
 	void update_baseband_bandwidth();
 	void update_vga();
 	void update_baseband_configuration();
 	void update_headphone_volume();
+
+	void update_modulation_configuration();
+	void update_am_configuration();
+	void update_nbfm_configuration();
+	void update_wfm_configuration();
 };
 
 #endif/*__RECEIVER_MODEL_H__*/
